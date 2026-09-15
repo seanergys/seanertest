@@ -1,25 +1,23 @@
 stages:
+  - generate
   - test
 
-pytest:
-  stage: test
-  image: python:3.12
-
+generate-test-pipeline:
+  stage: generate
+  image: python:3.12-alpine
   tags:
     - docker
-    - dind
-
-  services:
-    - name: docker:27-dind
-      alias: docker
-
-  variables:
-    DOCKER_HOST: "tcp://docker:2375"
-    DOCKER_TLS_CERTDIR: ""
-
-  before_script:
-    - python -m pip install --upgrade pip
-    - python -m pip install -e .
-
   script:
-    - pytest -v
+    - python scripts/generate-test-pipeline.py > generated-test-pipeline.yml
+    - cat generated-test-pipeline.yml
+  artifacts:
+    paths:
+      - generated-test-pipeline.yml
+
+run-tests:
+  stage: test
+  trigger:
+    include:
+      - artifact: generated-test-pipeline.yml
+        job: generate-test-pipeline
+    strategy: mirror

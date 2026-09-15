@@ -124,3 +124,23 @@ def test_spack_environment_is_available(services):
 
 `files:`, `setup:`, and `activate:` are generic fixture features; they are not
 specific to Spack.
+
+## One CI job per test file
+
+GitLab CI first discovers every `tests/**/test_*.py` file and generates a child
+pipeline with one job per test file. Each generated job gets its own DinD service,
+so Docker state and service containers are isolated between test files.
+
+Within pytest, the `services` fixture is module-scoped. A test file therefore
+starts its adjacent `fixture.yaml` once, shares those services between tests in
+that file, and tears them down when the file completes.
+
+For example, these files:
+
+```text
+tests/alpha/test_alpha.py
+tests/flux-core/test_flux_core.py
+tests/spack-environment/test_spack_environment.py
+```
+
+produce three independent CI jobs, each running only its own file.

@@ -8,7 +8,7 @@ from .runtime import DockerFixtureEnvironment, Services
 from .spec import load_fixture
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def services(request: pytest.FixtureRequest) -> Services:
     """Start the services declared by fixture.yaml beside the current test file."""
     test_path = Path(str(request.node.path)).resolve()
