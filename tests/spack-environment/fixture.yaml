@@ -1,0 +1,16 @@
+version: 1
+
+services:
+  - name: spack
+    image: spack/ubuntu-jammy:latest
+    command:
+      - sleep
+      - infinity
+    files:
+      - source: spack.yaml
+        target: /opt/seanertest/input/spack.yaml
+      - source: prepare.sh
+        target: /opt/seanertest/input/prepare.sh
+    setup:
+      - sh /opt/seanertest/input/prepare.sh
+    activate: /tmp/seanertest/activate.sh

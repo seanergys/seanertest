@@ -1,8 +1,10 @@
 version: 1
 
 services:
-  - name: flux-core
-    image: fluxrm/flux-core:latest
+  - name: seanergys-flux
+    param:
+      - config.yaml # resources (how many nodes)
+    image: rockylinux:9
     command:
       - sleep
       - infinity

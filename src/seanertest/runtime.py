@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import io
 import os
+import shlex
 import socket
 import tarfile
 import time
 import uuid
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import docker
 from docker.models.containers import Container
 from docker.models.networks import Network
 
-from .spec import FixtureSpec, ServiceSpec
+from .spec import FileSpec, FixtureSpec, ServiceSpec
 
 _CONFIG_PATH = "/tmp/seanertest/config.yml"
 
@@ -25,6 +26,7 @@ class Service:
     name: str
     container: Container
     access_host: str
+    activate: str | None = None
 
     def host_port(self, container_port: int) -> int:
         self.container.reload()
@@ -41,7 +43,21 @@ class Service:
         return self.container.logs(stdout=True, stderr=True).decode(errors="replace")
 
     def exec(self, command: str | list[str]) -> str:
-        result = self.container.exec_run(command)
+        exec_command: str | list[str] = command
+        if self.activate is not None:
+            activate = shlex.quote(self.activate)
+            if isinstance(command, str):
+                exec_command = ["/bin/sh", "-lc", f". {activate} && {command}"]
+            else:
+                exec_command = [
+                    "/bin/sh",
+                    "-lc",
+                    f'. {activate} && exec "$@"',
+                    "seanertest",
+                    *command,
+                ]
+
+        result = self.container.exec_run(exec_command)
         output = result.output.decode(errors="replace")
         if result.exit_code != 0:
             raise RuntimeError(
@@ -143,14 +159,21 @@ class DockerFixtureEnvironment:
         assert self.network is not None
         self.network.connect(container, aliases=[spec.name])
 
+        files = list(spec.files)
         if spec.config is not None:
-            _copy_config(container, spec.config)
+            files.append(FileSpec(source=spec.config, target=_CONFIG_PATH))
+        if files:
+            _copy_files(container, files)
 
         container.start()
+        _wait_for_container_running(container, spec.name, self.startup_timeout)
+        _run_setup(container, spec)
+
         self.services[spec.name] = Service(
             name=spec.name,
             container=container,
             access_host=self.access_host,
+            activate=spec.activate,
         )
 
     def _wait_until_ready(self) -> None:
@@ -158,20 +181,6 @@ class DockerFixtureEnvironment:
 
         for spec in self.spec.services:
             service = self.services[spec.name]
-
-            while True:
-                service.container.reload()
-                state = service.container.attrs["State"]
-                status = state.get("Status")
-                if status == "exited":
-                    raise RuntimeError(
-                        f"service {spec.name!r} exited during startup\n{service.logs()}"
-                    )
-                if status == "running":
-                    break
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(f"service {spec.name!r} did not start")
-                time.sleep(0.1)
 
             for port in spec.ports:
                 while True:
@@ -196,22 +205,70 @@ class DockerFixtureEnvironment:
                         time.sleep(0.2)
 
 
-def _copy_config(container: Container, source: Path) -> None:
-    data = source.read_bytes()
+def _wait_for_container_running(container: Container, name: str, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        container.reload()
+        state = container.attrs["State"]
+        status = state.get("Status")
+        if status == "running":
+            return
+        if status == "exited":
+            logs = container.logs(stdout=True, stderr=True).decode(errors="replace")
+            raise RuntimeError(f"service {name!r} exited during startup\n{logs}")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"service {name!r} did not start")
+        time.sleep(0.1)
+
+
+def _run_setup(container: Container, spec: ServiceSpec) -> None:
+    for command in spec.setup:
+        result = container.exec_run(["/bin/sh", "-lc", command])
+        output = result.output.decode(errors="replace")
+        if result.exit_code != 0:
+            raise RuntimeError(
+                f"setup command {command!r} failed in service {spec.name!r} "
+                f"with exit code {result.exit_code}\n{output}"
+            )
+
+    if spec.activate is not None:
+        result = container.exec_run(["test", "-f", spec.activate])
+        if result.exit_code != 0:
+            raise RuntimeError(
+                f"activation script {spec.activate!r} was not created "
+                f"for service {spec.name!r}"
+            )
+
+
+def _copy_files(container: Container, files: list[FileSpec]) -> None:
     archive = io.BytesIO()
+    directories: set[str] = set()
+
     with tarfile.open(fileobj=archive, mode="w") as tar:
-        directory = tarfile.TarInfo("seanertest")
-        directory.type = tarfile.DIRTYPE
-        directory.mode = 0o755
-        tar.addfile(directory)
+        for file_spec in files:
+            target = PurePosixPath(file_spec.target)
+            relative_target = target.relative_to("/")
 
-        info = tarfile.TarInfo("seanertest/config.yml")
-        info.size = len(data)
-        info.mode = 0o444
-        tar.addfile(info, io.BytesIO(data))
+            parent = relative_target.parent
+            parents = list(reversed(parent.parents)) + [parent]
+            for directory_path in parents:
+                directory_name = str(directory_path)
+                if directory_name in (".", "") or directory_name in directories:
+                    continue
+                directory = tarfile.TarInfo(directory_name)
+                directory.type = tarfile.DIRTYPE
+                directory.mode = 0o755
+                tar.addfile(directory)
+                directories.add(directory_name)
 
-    if not container.put_archive("/tmp", archive.getvalue()):
-        raise RuntimeError(f"could not copy config file {source} into service container")
+            data = file_spec.source.read_bytes()
+            info = tarfile.TarInfo(str(relative_target))
+            info.size = len(data)
+            info.mode = 0o755 if os.access(file_spec.source, os.X_OK) else 0o444
+            tar.addfile(info, io.BytesIO(data))
+
+    if not container.put_archive("/", archive.getvalue()):
+        raise RuntimeError("could not copy fixture files into service container")
 
 
 def _docker_access_host() -> str:

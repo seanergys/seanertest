@@ -1,0 +1,6 @@
+spack:
+  specs:
+    - hello
+  concretizer:
+    unify: true
+  view: true

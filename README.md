@@ -77,3 +77,50 @@ def test_flux_core_is_available(services):
 ```
 
 No Flux scheduler, broker configuration, ports, or service configuration are added yet.
+
+## Multiple files and a prepared environment
+
+A service can copy any number of files from its test directory into the
+container with `files:`. Each entry has a local `source` and an absolute
+container `target`.
+
+`tests/spack-environment/` uses two files to create and install a Spack
+environment:
+
+```yaml
+version: 1
+
+services:
+  - name: spack
+    image: spack/ubuntu-jammy:latest
+    command:
+      - sleep
+      - infinity
+    files:
+      - source: spack.yaml
+        target: /opt/seanertest/input/spack.yaml
+      - source: prepare.sh
+        target: /opt/seanertest/input/prepare.sh
+    setup:
+      - sh /opt/seanertest/input/prepare.sh
+    activate: /tmp/seanertest/activate.sh
+```
+
+`setup:` commands run once after the container starts. In this example,
+`prepare.sh` creates the Spack environment, concretizes it, installs the
+packages, and writes the shell activation commands to
+`/tmp/seanertest/activate.sh`.
+
+When `activate:` is present, every later `Service.exec()` automatically sources
+that script first. Tests therefore use software from the prepared environment
+without repeating Spack activation:
+
+```python
+def test_spack_environment_is_available(services):
+    spack = services["spack"]
+    output = spack.exec(["hello", "--version"])
+    assert "GNU Hello" in output
+```
+
+`files:`, `setup:`, and `activate:` are generic fixture features; they are not
+specific to Spack.
