@@ -1,7 +1,11 @@
 #!/bin/sh
 set -eu
 
-spack env create --dir /opt/seanertest/env /opt/seanertest/input/spack.yaml
-spack -e /opt/seanertest/env concretize
-spack -e /opt/seanertest/env install
-spack env activate --sh /opt/seanertest/env > /tmp/seanertest/activate.sh
+SPACK=/opt/spack/bin/spack
+ENV=/opt/seanertest/env
+
+"$SPACK" -e "$ENV" concretize
+"$SPACK" -e "$ENV" install
+
+mkdir -p /tmp/seanertest
+"$SPACK" env activate --sh "$ENV" > /tmp/seanertest/activate.sh

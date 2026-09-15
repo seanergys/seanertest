@@ -72,7 +72,13 @@ class Services(Mapping[str, Service]):
         self._values = values
 
     def __getitem__(self, key: str) -> Service:
-        return self._values[key]
+        try:
+            return self._values[key]
+        except KeyError as exc:
+            available = ", ".join(sorted(self._values)) or "<none>"
+            raise KeyError(
+                f"unknown service {key!r}; available services: {available}"
+            ) from exc
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._values)
@@ -105,6 +111,15 @@ class DockerFixtureEnvironment:
             for service_spec in self.spec.services:
                 self._start_service(service_spec)
             self._wait_until_ready()
+
+            expected = {service.name for service in self.spec.services}
+            actual = set(self.services)
+            if actual != expected:
+                raise RuntimeError(
+                    f"internal service mismatch: expected {sorted(expected)!r}, "
+                    f"got {sorted(actual)!r}"
+                )
+
             return Services(dict(self.services))
         except Exception:
             self.stop()
