@@ -60,9 +60,10 @@ class Service:
         result = self.container.exec_run(exec_command)
         output = result.output.decode(errors="replace")
         if result.exit_code != 0:
+            diagnostics = _exit_diagnostics(self.container, result.exit_code)
             raise RuntimeError(
                 f"command {command!r} failed in service {self.name!r} "
-                f"with exit code {result.exit_code}\n{output}"
+                f"with exit code {result.exit_code}\n{output}{diagnostics}"
             )
         return output
 
@@ -241,9 +242,10 @@ def _run_setup(container: Container, spec: ServiceSpec) -> None:
         result = container.exec_run(["/bin/sh", "-lc", command])
         output = result.output.decode(errors="replace")
         if result.exit_code != 0:
+            diagnostics = _exit_diagnostics(container, result.exit_code)
             raise RuntimeError(
                 f"setup command {command!r} failed in service {spec.name!r} "
-                f"with exit code {result.exit_code}\n{output}"
+                f"with exit code {result.exit_code}\n{output}{diagnostics}"
             )
 
     if spec.activate is not None:
@@ -253,6 +255,68 @@ def _run_setup(container: Container, spec: ServiceSpec) -> None:
                 f"activation script {spec.activate!r} was not created "
                 f"for service {spec.name!r}"
             )
+
+
+def _exit_diagnostics(container: Container, exit_code: int) -> str:
+    """Return extra diagnostics for processes killed with SIGKILL (137)."""
+    if exit_code != 137:
+        return ""
+
+    lines = [
+        "",
+        "exit code 137 means the process was killed with SIGKILL.",
+        "Container resource diagnostics:",
+    ]
+
+    try:
+        container.reload()
+        attrs = container.attrs
+        host_config = attrs.get("HostConfig", {})
+        state = attrs.get("State", {})
+        lines.extend(
+            [
+                f"docker.memory={host_config.get('Memory', 0)}",
+                f"docker.memory_swap={host_config.get('MemorySwap', 0)}",
+                f"docker.nano_cpus={host_config.get('NanoCpus', 0)}",
+                f"docker.pids_limit={host_config.get('PidsLimit', 0)}",
+                f"docker.oom_killed={state.get('OOMKilled', False)}",
+            ]
+        )
+    except Exception as exc:
+        lines.append(f"docker.inspect_error={exc}")
+
+    command = r"""
+for path in \
+    /sys/fs/cgroup/memory.max \
+    /sys/fs/cgroup/memory.current \
+    /sys/fs/cgroup/memory.events \
+    /sys/fs/cgroup/memory.swap.max \
+    /sys/fs/cgroup/memory.limit_in_bytes \
+    /sys/fs/cgroup/memory.usage_in_bytes \
+    /sys/fs/cgroup/memory.failcnt \
+    /sys/fs/cgroup/memory.oom_control
+do
+    if [ -r "$path" ]; then
+        echo "--- $path"
+        cat "$path"
+    fi
+done
+
+if [ -r /proc/meminfo ]; then
+    echo "--- /proc/meminfo"
+    grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo || true
+fi
+"""
+
+    try:
+        result = container.exec_run(["/bin/sh", "-c", command])
+        output = result.output.decode(errors="replace").strip()
+        if output:
+            lines.append(output)
+    except Exception as exc:
+        lines.append(f"cgroup.diagnostics_error={exc}")
+
+    return "\n" + "\n".join(lines) + "\n"
 
 
 def _copy_files(container: Container, files: list[FileSpec]) -> None:
