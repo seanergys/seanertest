@@ -1,10 +1,11 @@
 version: 1
 
-
 services:
   - name: seanergys-flux
     image: fluxrm/flux-core:latest
     command:
       - sleep
       - infinity
-
+    files:
+      - source: workload.sh
+        target: /opt/seanertest/input/workload.sh

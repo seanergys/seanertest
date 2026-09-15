@@ -1,21 +1,19 @@
-def test_flux_core_is_available(services):
+def test_flux_core_submits_jobs(services):
     flux = services["seanergys-flux"]
 
     output = flux.exec(
         [
+            "flux",
+            "start",
+            "--test-size=1",
             "/bin/sh",
-            "-lc",
-            """
-            set -eu
-            echo "PATH=$PATH"
-            echo "--- command -v flux"
-            command -v flux || true
-            echo "--- common locations"
-            ls -l /usr/bin/flux /usr/local/bin/flux /opt/flux/bin/flux 2>/dev/null || true
-            echo "--- find flux"
-            find /usr /usr/local /opt -type f -name flux 2>/dev/null | head -20 || true
-            """,
+            "/opt/seanertest/input/workload.sh",
         ]
     )
 
-    print(output)
+    assert "result-one=job-one" in output
+    assert "result-two=job-two" in output
+    assert "result-three=job-three" in output
+    assert "seanertest-one" in output
+    assert "seanertest-two" in output
+    assert "seanertest-three" in output
