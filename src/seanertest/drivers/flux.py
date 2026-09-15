@@ -194,24 +194,49 @@ class FluxDriver(ServiceDriver):
     def _wait_ready(self, login: AllocatedNode, expected_size: int) -> None:
         deadline = time.monotonic() + self.backend.startup_timeout
         last_error: Exception | None = None
+        root = self._brokers[0]
+
         while time.monotonic() < deadline:
             try:
-                size = login.exec(
+                # `flux getattr size` is the configured broker count. It does
+                # not tell us that all brokers have actually joined the
+                # overlay. Readiness is therefore determined from rank 0.
+                status = root.exec(
+                    ["flux", "overlay", "status"],
+                    environment={"FLUX_URI": _FLUX_URI},
+                )
+                if "full" not in status.lower():
+                    time.sleep(0.2)
+                    continue
+
+                size = root.exec(
                     ["flux", "getattr", "size"],
                     environment={"FLUX_URI": _FLUX_URI},
                 ).strip()
-                if int(size) == expected_size:
-                    login.exec(
-                        ["flux", "resource", "list"],
-                        environment={"FLUX_URI": _FLUX_URI},
+
+                if int(size) != expected_size:
+                    last_error = RuntimeError(
+                        f"Flux overlay has size {size}, expected {expected_size}"
                     )
-                    return
+                    time.sleep(0.2)
+                    continue
+
+                # Finally verify the user-facing broker can reach the
+                # scheduler/resource services hosted upstream.
+                login.exec(
+                    ["flux", "resource", "list"],
+                    environment={"FLUX_URI": _FLUX_URI},
+                )
+                return
             except Exception as exc:
                 last_error = exc
+
             time.sleep(0.2)
 
         diagnostics = []
         for node in self._brokers:
+            parts = [f"--- {node.hostname} ---"]
+
             try:
                 log = node.exec(
                     [
@@ -222,7 +247,34 @@ class FluxDriver(ServiceDriver):
                 )
             except Exception as exc:
                 log = f"could not read broker log: {exc}"
-            diagnostics.append(f"--- {node.hostname} ---\n{log}")
+
+            if log.strip():
+                parts.append(f"broker log:\n{log.rstrip()}")
+
+            diagnostic_commands = (
+                ["/bin/sh", "-lc", "ps -ef | grep '[f]lux-broker' || true"],
+                ["flux", "getattr", "rank"],
+                ["flux", "getattr", "size"],
+                ["flux", "overlay", "status", "-v"],
+                ["flux", "overlay", "errors"],
+            )
+
+            for command in diagnostic_commands:
+                try:
+                    if command[0] == "flux":
+                        output = node.exec(
+                            command,
+                            environment={"FLUX_URI": _FLUX_URI},
+                        )
+                    else:
+                        output = node.exec(command)
+                    rendered = output.rstrip() or "<no output>"
+                    parts.append(f"$ {' '.join(command)}\n{rendered}")
+                except Exception as exc:
+                    parts.append(f"$ {' '.join(command)}\nERROR: {exc}")
+
+            diagnostics.append("\n".join(parts))
+
         detail = "\n".join(diagnostics)
         raise TimeoutError(
             f"Flux service did not become ready with {expected_size} brokers; "
