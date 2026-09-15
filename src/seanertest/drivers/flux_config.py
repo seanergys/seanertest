@@ -131,7 +131,7 @@ def render_flux_hosts_toml(
         "[bootstrap]",
         f'curve_cert = {json.dumps(_FLUX_CERT)}',
         "default_port = 8050",
-        'default_bind = "tcp://eth0:%p"',
+        'default_bind = "tcp://*:%p"',
         'default_connect = "tcp://%h:%p"',
         "hosts = [",
     ]
