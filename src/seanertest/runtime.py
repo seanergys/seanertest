@@ -239,10 +239,15 @@ def _wait_for_container_running(container: Container, name: str, timeout: float)
 
 def _run_setup(container: Container, spec: ServiceSpec) -> None:
     for command in spec.setup:
+        before = _running_resource_snapshot(container)
         result = container.exec_run(["/bin/sh", "-lc", command])
         output = result.output.decode(errors="replace")
         if result.exit_code != 0:
-            diagnostics = _exit_diagnostics(container, result.exit_code)
+            diagnostics = _exit_diagnostics(
+                container,
+                result.exit_code,
+                before=before,
+            )
             raise RuntimeError(
                 f"setup command {command!r} failed in service {spec.name!r} "
                 f"with exit code {result.exit_code}\n{output}{diagnostics}"
@@ -257,40 +262,20 @@ def _run_setup(container: Container, spec: ServiceSpec) -> None:
             )
 
 
-def _exit_diagnostics(container: Container, exit_code: int) -> str:
-    """Return extra diagnostics for processes killed with SIGKILL (137)."""
-    if exit_code != 137:
-        return ""
-
-    lines = [
-        "",
-        "exit code 137 means the process was killed with SIGKILL.",
-        "Container resource diagnostics:",
-    ]
-
-    try:
-        container.reload()
-        attrs = container.attrs
-        host_config = attrs.get("HostConfig", {})
-        state = attrs.get("State", {})
-        lines.extend(
-            [
-                f"docker.memory={host_config.get('Memory', 0)}",
-                f"docker.memory_swap={host_config.get('MemorySwap', 0)}",
-                f"docker.nano_cpus={host_config.get('NanoCpus', 0)}",
-                f"docker.pids_limit={host_config.get('PidsLimit', 0)}",
-                f"docker.oom_killed={state.get('OOMKilled', False)}",
-            ]
-        )
-    except Exception as exc:
-        lines.append(f"docker.inspect_error={exc}")
-
+def _running_resource_snapshot(container: Container) -> str:
+    """Capture resource state while a service container is still running."""
     command = r"""
+echo "--- /proc/self/cgroup"
+cat /proc/self/cgroup 2>/dev/null || true
+
 for path in \
     /sys/fs/cgroup/memory.max \
+    /sys/fs/cgroup/memory.high \
     /sys/fs/cgroup/memory.current \
     /sys/fs/cgroup/memory.events \
     /sys/fs/cgroup/memory.swap.max \
+    /sys/fs/cgroup/pids.max \
+    /sys/fs/cgroup/pids.current \
     /sys/fs/cgroup/memory.limit_in_bytes \
     /sys/fs/cgroup/memory.usage_in_bytes \
     /sys/fs/cgroup/memory.failcnt \
@@ -311,10 +296,84 @@ fi
     try:
         result = container.exec_run(["/bin/sh", "-c", command])
         output = result.output.decode(errors="replace").strip()
-        if output:
-            lines.append(output)
+        if result.exit_code != 0:
+            return f"resource snapshot failed with exit code {result.exit_code}: {output}"
+        return output
     except Exception as exc:
-        lines.append(f"cgroup.diagnostics_error={exc}")
+        return f"resource snapshot failed: {exc}"
+
+
+def _exit_diagnostics(
+    container: Container,
+    exit_code: int,
+    *,
+    before: str | None = None,
+) -> str:
+    """Return extra diagnostics for processes killed with SIGKILL (137)."""
+    if exit_code != 137:
+        return ""
+
+    lines = [
+        "",
+        "exit code 137 means the process was killed with SIGKILL.",
+        "Container resource diagnostics:",
+    ]
+
+    try:
+        container.reload()
+        attrs = container.attrs
+        host_config = attrs.get("HostConfig", {})
+        state = attrs.get("State", {})
+        lines.extend(
+            [
+                f"docker.status={state.get('Status')}",
+                f"docker.running={state.get('Running')}",
+                f"docker.dead={state.get('Dead')}",
+                f"docker.restarting={state.get('Restarting')}",
+                f"docker.exit_code={state.get('ExitCode')}",
+                f"docker.error={state.get('Error')!r}",
+                f"docker.oom_killed={state.get('OOMKilled', False)}",
+                f"docker.pid={state.get('Pid')}",
+                f"docker.started_at={state.get('StartedAt')}",
+                f"docker.finished_at={state.get('FinishedAt')}",
+                f"docker.restart_count={attrs.get('RestartCount', 0)}",
+                f"docker.path={attrs.get('Path')!r}",
+                f"docker.args={attrs.get('Args')!r}",
+                f"docker.memory={host_config.get('Memory', 0)}",
+                f"docker.memory_swap={host_config.get('MemorySwap', 0)}",
+                f"docker.nano_cpus={host_config.get('NanoCpus', 0)}",
+                f"docker.pids_limit={host_config.get('PidsLimit', 0)}",
+                f"docker.cgroup_parent={host_config.get('CgroupParent')!r}",
+            ]
+        )
+
+        try:
+            logs = container.logs(stdout=True, stderr=True, tail=50).decode(
+                errors="replace"
+            ).strip()
+            if logs:
+                lines.extend(["Container logs (last 50 lines):", logs])
+        except Exception as exc:
+            lines.append(f"docker.logs_error={exc}")
+    except Exception as exc:
+        lines.append(f"docker.inspect_error={exc}")
+
+    if before:
+        lines.extend(
+            [
+                "Resource state immediately before the setup command:",
+                before,
+            ]
+        )
+
+    if container.status == "running":
+        after = _running_resource_snapshot(container)
+        if after:
+            lines.extend(["Resource state after failure:", after])
+    else:
+        lines.append(
+            "Resource state after failure is unavailable because the container is not running."
+        )
 
     return "\n" + "\n".join(lines) + "\n"
 
