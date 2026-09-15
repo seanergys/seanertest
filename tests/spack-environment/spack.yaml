@@ -1,6 +1,6 @@
 spack:
   specs:
-    - hello
+    - m4
   concretizer:
     unify: true
   view: true
