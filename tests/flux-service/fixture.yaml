@@ -1,0 +1,16 @@
+version: 1
+
+services:
+  - name: seanergys.flux
+    driver:
+      name: flux
+      config:
+        generic:
+          config: configs/generic/config.toml
+          hosts: configs/generic/hosts.yaml
+        Asys:
+          config: configs/Asys/config.toml
+          hosts: configs/Asys/hosts.yaml
+        Bsys:
+          config: configs/Bsys/config.toml
+          hosts: configs/Bsys/hosts.yaml

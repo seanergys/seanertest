@@ -1,0 +1,17 @@
+version: 1
+name: Asys
+
+provider:
+  name: docker
+  image: fluxrm/flux-core:latest
+  command:
+    - sleep
+    - infinity
+
+nodes:
+  - role: control
+    count: 4
+  - role: login
+    count: 1
+  - role: compute
+    count: 6

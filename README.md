@@ -1,21 +1,168 @@
 # seanertest fixture prototype
 
-This is the minimal pytest + `fixture.yaml` + Docker implementation.
+Seanertest is a pytest fixture layer for integration tests that need services on
+machine-shaped testbeds. The repository now has two distinct concepts:
 
-Each test lives in its own directory. The pytest `services` fixture finds the
-`fixture.yaml` beside the test file, starts the declared service containers,
-waits for published TCP ports to accept connections, yields a mapping of
-service names to running service handles, and tears everything down afterwards.
+1. **machine descriptions** say which execution nodes exist and how they are
+   provisioned;
+2. **service drivers** install/start a logical service across those nodes.
 
-```text
-tests/
-└── alpha/
-    ├── fixture.yaml
-    ├── c.yml
-    └── test_alpha.py
+The original one-container-per-service fixtures continue to work unchanged.
+Driver-backed services use a selected machine description.
+
+## Selecting a machine/testbed
+
+Pass the machine name to pytest:
+
+```bash
+pytest -v --testbed Asys tests/flux-service/test_flux_service.py
+pytest -v --testbed Bsys tests/flux-service/test_flux_service.py
 ```
 
-A fixture looks like this:
+`SEANERTEST_TESTBED=Asys` is also accepted. Seanertest searches upward from the
+test directory for `machines/<name>.yaml`.
+
+The included Docker-only machines are:
+
+```text
+machines/
+├── Asys.yaml   # 4 control + 1 login + 6 compute nodes
+└── Bsys.yaml   # 1 control + 1 login + 4 compute nodes
+```
+
+A machine description is intentionally service-independent:
+
+```yaml
+version: 1
+name: Asys
+
+provider:
+  name: docker
+  image: fluxrm/flux-core:latest
+  command: [sleep, infinity]
+
+nodes:
+  - role: control
+    count: 4
+  - role: login
+    count: 1
+  - role: compute
+    count: 6
+```
+
+For the Docker provider, every logical node becomes one container with a stable
+hostname such as `asys-control-0` or `asys-compute-3`.
+
+## Driver-backed fixtures
+
+`tests/flux-service/fixture.yaml` declares one logical Flux service:
+
+```yaml
+version: 1
+
+services:
+  - name: seanergys.flux
+    driver:
+      name: flux
+      config:
+        generic:
+          config: configs/generic/config.toml
+          hosts: configs/generic/hosts.yaml
+        Asys:
+          config: configs/Asys/config.toml
+          hosts: configs/Asys/hosts.yaml
+        Bsys:
+          config: configs/Bsys/config.toml
+          hosts: configs/Bsys/hosts.yaml
+```
+
+The selected testbed chooses the matching entry. If a machine exists but there
+is no exact service configuration, `generic` is used as the fallback.
+
+Each testbed has two Flux inputs:
+
+```text
+configs/
+├── generic/
+│   ├── config.toml
+│   └── hosts.yaml
+├── Asys/
+│   ├── config.toml
+│   └── hosts.yaml
+└── Bsys/
+    ├── config.toml
+    └── hosts.yaml
+```
+
+`config.toml` is ordinary Flux configuration. `hosts.yaml` is deliberately not
+a concrete Flux host list. It maps machine roles onto Flux brokers and
+resources, for example:
+
+```yaml
+version: 1
+brokers:
+  roles: [control, login, compute]
+login:
+  role: login
+resources:
+  - role: control
+    cores: "0"
+    properties: [control]
+    schedulable: false
+  - role: login
+    cores: "0"
+    properties: [login]
+    schedulable: false
+  - role: compute
+    cores: "0"
+    properties: [compute]
+    schedulable: true
+```
+
+The Flux driver combines this host-independent template with the actual nodes
+created by the machine provider and writes the concrete Flux `[bootstrap]` and
+`[[resource.config]]` configuration. Control and login brokers participate in
+the Flux instance but are excluded from scheduling; only compute nodes execute
+normal jobs.
+
+## Flux service API
+
+Tests receive the service through the normal `services` fixture:
+
+```python
+flux = services["seanergys.flux"]
+```
+
+The Flux-specific handle exposes:
+
+```python
+flux.broker_nodes()    # allocated nodes running Flux brokers
+flux.compute_nodes()   # schedulable compute nodes
+flux.hostnames()       # broker hostnames in Flux rank order
+flux.login_node()      # the selected login node
+flux.login_address()   # login hostname/address
+flux.flux_uri()        # Flux URI used inside the login node
+flux.pyflux()          # real flux.Flux handle when host-side access is possible
+flux.exec([...])       # execute a command from the login node in the Flux instance
+```
+
+For the Docker backend, the Flux local connector is a UNIX socket inside the
+login container, so `pyflux()` normally returns `None`. The API is intentionally
+optional so a future provider with a host-reachable Flux URI can return a real
+`flux.Flux` object without changing tests.
+
+The integration test submits one task to every compute node and expects output
+of the form:
+
+```text
+hello from asys-compute-0
+hello from asys-compute-1
+...
+```
+
+## Existing single-container fixtures
+
+Simple fixtures remain valid:
 
 ```yaml
 version: 1
@@ -23,124 +170,22 @@ services:
   - name: alpha
     image: python:3.12-alpine
     config: c.yml
-    ports:
-      - 8080
+    ports: [8080]
 ```
 
-`config` is resolved relative to the test directory. It is copied into the
-container at `/tmp/seanertest/config.yml` and the service receives
-`SEANERTEST_CONFIG=/tmp/seanertest/config.yml`.
+These are still useful for component tests that do not need a machine-level
+service driver.
 
-The file is copied through the Docker API rather than bind-mounted. This is
-important for GitLab DinD, where the pytest job filesystem is not the Docker
-daemon filesystem.
+## CI
 
-Services are attached to a private Docker network. Their fixture `name` is also
-a network alias, so services can address each other by names such as `alpha`.
-Published ports are assigned random host ports. Tests should use:
-
-```python
-alpha = services["alpha"]
-url = alpha.endpoint(8080)
-```
-
-With DinD, `endpoint()` automatically uses the hostname from `DOCKER_HOST`
-(`docker` in the included GitLab job); with a local Unix Docker socket it uses
-`127.0.0.1`.
-
-If GitLab registry variables are present, the fixture logs the Docker client in
-to `CI_REGISTRY` before pulling images, so private project/group images can be
-used directly in `fixture.yaml`.
-
-## Flux Core example
-
-`tests/flux-core/` declares a single Flux Core container and nothing else:
-
-```yaml
-version: 1
-
-services:
-  - name: flux-core
-    image: fluxrm/flux-core:latest
-    command:
-      - sleep
-      - infinity
-```
-
-The test verifies only that the Flux Core executable is present:
-
-```python
-def test_flux_core_is_available(services):
-    flux = services["flux-core"]
-    output = flux.exec(["flux", "--version"])
-    assert "flux-core" in output
-```
-
-No Flux scheduler, broker configuration, ports, or service configuration are added yet.
-
-## Multiple files and a prepared environment
-
-A service can copy any number of files from its test directory into the
-container with `files:`. Each entry has a local `source` and an absolute
-container `target`.
-
-`tests/spack-environment/` uses two files to create and install a Spack
-environment:
-
-```yaml
-version: 1
-
-services:
-  - name: spack
-    image: spack/ubuntu-jammy:latest
-    command:
-      - sleep
-      - infinity
-    files:
-      - source: spack.yaml
-        target: /opt/seanertest/input/spack.yaml
-      - source: prepare.sh
-        target: /opt/seanertest/input/prepare.sh
-    setup:
-      - sh /opt/seanertest/input/prepare.sh
-    activate: /tmp/seanertest/activate.sh
-```
-
-`setup:` commands run once after the container starts. In this example,
-`prepare.sh` creates the Spack environment, concretizes it, installs the
-packages, and writes the shell activation commands to
-`/tmp/seanertest/activate.sh`.
-
-When `activate:` is present, every later `Service.exec()` automatically sources
-that script first. Tests therefore use software from the prepared environment
-without repeating Spack activation:
-
-```python
-def test_spack_environment_is_available(services):
-    spack = services["spack"]
-    output = spack.exec(["hello", "--version"])
-    assert "GNU Hello" in output
-```
-
-`files:`, `setup:`, and `activate:` are generic fixture features; they are not
-specific to Spack.
-
-## One CI job per test file
-
-GitLab CI first discovers every `tests/**/test_*.py` file and generates a child
-pipeline with one job per test file. Each generated job gets its own DinD service,
-so Docker state and service containers are isolated between test files.
-
-Within pytest, the `services` fixture is module-scoped. A test file therefore
-starts its adjacent `fixture.yaml` once, shares those services between tests in
-that file, and tears them down when the file completes.
-
-For example, these files:
+The child-pipeline generator detects explicit testbed entries in a fixture's
+`driver.config`. A test file using the Flux fixture therefore becomes two CI
+jobs automatically:
 
 ```text
-tests/alpha/test_alpha.py
-tests/flux-core/test_flux_core.py
-tests/spack-environment/test_spack_environment.py
+pytest:tests-flux-service-test_flux_service-Asys
+pytest:tests-flux-service-test_flux_service-Bsys
 ```
 
-produce three independent CI jobs, each running only its own file.
+Each invokes pytest with the corresponding `--testbed` argument and gets its
+own DinD daemon/network.

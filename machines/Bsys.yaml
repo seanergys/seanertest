@@ -1,0 +1,17 @@
+version: 1
+name: Bsys
+
+provider:
+  name: docker
+  image: fluxrm/flux-core:latest
+  command:
+    - sleep
+    - infinity
+
+nodes:
+  - role: control
+    count: 1
+  - role: login
+    count: 1
+  - role: compute
+    count: 4

@@ -1,0 +1,26 @@
+version: 1
+
+brokers:
+  roles:
+    - control
+    - login
+    - compute
+
+login:
+  role: login
+
+resources:
+  - role: control
+    cores: "0"
+    properties: [control]
+    schedulable: false
+
+  - role: login
+    cores: "0"
+    properties: [login]
+    schedulable: false
+
+  - role: compute
+    cores: "0"
+    properties: [compute]
+    schedulable: true

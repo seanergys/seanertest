@@ -1,427 +1,108 @@
 from __future__ import annotations
 
-import io
-import os
-import shlex
-import socket
-import tarfile
-import time
-import uuid
-from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
-from urllib.parse import urlparse
-
-import docker
 from docker.models.containers import Container
-from docker.models.networks import Network
 
-from .spec import FileSpec, FixtureSpec, ServiceSpec
-
-_CONFIG_PATH = "/tmp/seanertest/config.yml"
-
-
-@dataclass
-class Service:
-    name: str
-    container: Container
-    access_host: str
-    activate: str | None = None
-
-    def host_port(self, container_port: int) -> int:
-        self.container.reload()
-        key = f"{container_port}/tcp"
-        bindings = self.container.attrs["NetworkSettings"]["Ports"].get(key)
-        if not bindings:
-            raise KeyError(f"service {self.name!r} does not publish TCP port {container_port}")
-        return int(bindings[0]["HostPort"])
-
-    def endpoint(self, container_port: int, scheme: str = "http") -> str:
-        return f"{scheme}://{self.access_host}:{self.host_port(container_port)}"
-
-    def logs(self) -> str:
-        return self.container.logs(stdout=True, stderr=True).decode(errors="replace")
-
-    def exec(self, command: str | list[str]) -> str:
-        exec_command: str | list[str] = command
-        if self.activate is not None:
-            activate = shlex.quote(self.activate)
-            if isinstance(command, str):
-                exec_command = ["/bin/sh", "-lc", f". {activate} && {command}"]
-            else:
-                exec_command = [
-                    "/bin/sh",
-                    "-lc",
-                    f'. {activate} && exec "$@"',
-                    "seanertest",
-                    *command,
-                ]
-
-        result = self.container.exec_run(exec_command)
-        output = result.output.decode(errors="replace")
-        if result.exit_code != 0:
-            diagnostics = _exit_diagnostics(self.container, result.exit_code)
-            raise RuntimeError(
-                f"command {command!r} failed in service {self.name!r} "
-                f"with exit code {result.exit_code}\n{output}{diagnostics}"
-            )
-        return output
+from .docker_backend import DockerBackend
+from .drivers import get_driver
+from .drivers.base import ServiceDriver
+from .machine import MachineAllocation, MachineSpec
+from .service import ContainerService, Service, Services
+from .spec import FixtureSpec, ServiceSpec
 
 
-class Services(Mapping[str, Service]):
-    def __init__(self, values: dict[str, Service]):
-        self._values = values
+class FixtureEnvironment:
+    """Materialize a fixture on a selected machine/testbed."""
 
-    def __getitem__(self, key: str) -> Service:
-        try:
-            return self._values[key]
-        except KeyError as exc:
-            available = ", ".join(sorted(self._values)) or "<none>"
-            raise KeyError(
-                f"unknown service {key!r}; available services: {available}"
-            ) from exc
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._values)
-
-    def __len__(self) -> int:
-        return len(self._values)
-
-
-class DockerFixtureEnvironment:
-    def __init__(self, spec: FixtureSpec, startup_timeout: float = 30.0):
+    def __init__(
+        self,
+        spec: FixtureSpec,
+        *,
+        machine_spec: MachineSpec | None = None,
+        testbed: str | None = None,
+        startup_timeout: float = 30.0,
+    ):
         self.spec = spec
-        self.startup_timeout = startup_timeout
-        self.client = docker.from_env()
-        self.network: Network | None = None
-        self.containers: list[Container] = []
+        self.machine_spec = machine_spec
+        self.testbed = testbed
+        self.backend = DockerBackend(startup_timeout=startup_timeout)
+        self.machine: MachineAllocation | None = None
         self.services: dict[str, Service] = {}
-        self.run_id = uuid.uuid4().hex[:10]
-        self.access_host = _docker_access_host()
+        self.drivers: list[ServiceDriver] = []
 
     def start(self) -> Services:
-        self.client.ping()
-        _login_to_gitlab_registry(self.client)
-        self.network = self.client.networks.create(
-            f"seanertest-{self.run_id}",
-            driver="bridge",
-            labels={"org.seanergys.seanertest": "1"},
-        )
+        if self.spec.requires_machine:
+            if self.machine_spec is None or self.testbed is None:
+                raise ValueError(
+                    "fixture contains driver-backed services; a testbed/machine "
+                    "must be selected"
+                )
+            if self.machine_spec.name != self.testbed:
+                raise ValueError(
+                    f"selected testbed {self.testbed!r} loaded machine "
+                    f"{self.machine_spec.name!r}"
+                )
 
+        self.backend.start()
         try:
+            if self.machine_spec is not None:
+                self.machine = self.backend.provision_machine(self.machine_spec)
+
+            legacy_services: list[tuple[ServiceSpec, Container]] = []
             for service_spec in self.spec.services:
-                self._start_service(service_spec)
-            self._wait_until_ready()
+                if service_spec.driver is not None:
+                    self._start_driver_service(service_spec)
+                else:
+                    container = self.backend.start_container_service(service_spec)
+                    service = ContainerService(
+                        name=service_spec.name,
+                        container=container,
+                        access_host=self.backend.access_host,
+                        activate=service_spec.activate,
+                    )
+                    self.services[service_spec.name] = service
+                    legacy_services.append((service_spec, container))
+
+            self.backend.wait_for_ports(legacy_services)
 
             expected = {service.name for service in self.spec.services}
             actual = set(self.services)
             if actual != expected:
                 raise RuntimeError(
-                    f"internal service mismatch: expected {sorted(expected)!r}, "
+                    f"fixture service mismatch: expected {sorted(expected)!r}, "
                     f"got {sorted(actual)!r}"
                 )
-
             return Services(dict(self.services))
         except Exception:
             self.stop()
             raise
 
     def stop(self) -> None:
-        for container in reversed(self.containers):
+        for driver in reversed(self.drivers):
             try:
-                container.remove(force=True)
+                driver.stop()
             except Exception:
                 pass
-        self.containers.clear()
+        self.drivers.clear()
         self.services.clear()
+        self.machine = None
+        self.backend.stop()
 
-        if self.network is not None:
-            try:
-                self.network.remove()
-            except Exception:
-                pass
-            self.network = None
+    def _start_driver_service(self, service_spec: ServiceSpec) -> None:
+        if self.machine is None or self.testbed is None or service_spec.driver is None:
+            raise RuntimeError("driver-backed service has no provisioned machine")
 
-        try:
-            self.client.close()
-        except Exception:
-            pass
-
-    def _start_service(self, spec: ServiceSpec) -> None:
-        try:
-            self.client.images.get(spec.image)
-        except docker.errors.ImageNotFound:
-            self.client.images.pull(spec.image)
-
-        environment = dict(spec.environment)
-        if spec.config is not None:
-            environment["SEANERTEST_CONFIG"] = _CONFIG_PATH
-
-        published_ports = {f"{port}/tcp": None for port in spec.ports}
-        container = self.client.containers.create(
-            spec.image,
-            name=f"seanertest-{self.run_id}-{spec.name}",
-            command=spec.command,
-            entrypoint=spec.entrypoint,
-            environment=environment,
-            ports=published_ports or None,
-            labels={
-                "org.seanergys.seanertest": "1",
-                "org.seanergys.seanertest.service": spec.name,
-            },
-            detach=True,
+        variant = service_spec.driver.select(self.testbed)
+        driver_class = get_driver(service_spec.driver.name)
+        driver = driver_class(
+            backend=self.backend,
+            machine=self.machine,
+            service_spec=service_spec,
+            variant=variant,
+            testbed=self.testbed,
         )
-        self.containers.append(container)
-
-        assert self.network is not None
-        self.network.connect(container, aliases=[spec.name])
-
-        files = list(spec.files)
-        if spec.config is not None:
-            files.append(FileSpec(source=spec.config, target=_CONFIG_PATH))
-        if files:
-            _copy_files(container, files)
-
-        container.start()
-        _wait_for_container_running(container, spec.name, self.startup_timeout)
-        _run_setup(container, spec)
-
-        self.services[spec.name] = Service(
-            name=spec.name,
-            container=container,
-            access_host=self.access_host,
-            activate=spec.activate,
-        )
-
-    def _wait_until_ready(self) -> None:
-        deadline = time.monotonic() + self.startup_timeout
-
-        for spec in self.spec.services:
-            service = self.services[spec.name]
-
-            for port in spec.ports:
-                while True:
-                    try:
-                        host_port = service.host_port(port)
-                        with socket.create_connection(
-                            (service.access_host, host_port), timeout=0.5
-                        ):
-                            break
-                    except (OSError, KeyError):
-                        service.container.reload()
-                        state = service.container.attrs["State"]
-                        if state.get("Status") == "exited":
-                            raise RuntimeError(
-                                f"service {spec.name!r} exited during startup\n{service.logs()}"
-                            )
-                        if time.monotonic() >= deadline:
-                            raise TimeoutError(
-                                f"service {spec.name!r} did not open TCP port {port}\n"
-                                f"{service.logs()}"
-                            )
-                        time.sleep(0.2)
+        self.drivers.append(driver)
+        self.services[service_spec.name] = driver.start()
 
 
-def _wait_for_container_running(container: Container, name: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    while True:
-        container.reload()
-        state = container.attrs["State"]
-        status = state.get("Status")
-        if status == "running":
-            return
-        if status == "exited":
-            logs = container.logs(stdout=True, stderr=True).decode(errors="replace")
-            raise RuntimeError(f"service {name!r} exited during startup\n{logs}")
-        if time.monotonic() >= deadline:
-            raise TimeoutError(f"service {name!r} did not start")
-        time.sleep(0.1)
-
-
-def _run_setup(container: Container, spec: ServiceSpec) -> None:
-    for command in spec.setup:
-        before = _running_resource_snapshot(container)
-        result = container.exec_run(["/bin/sh", "-lc", command])
-        output = result.output.decode(errors="replace")
-        if result.exit_code != 0:
-            diagnostics = _exit_diagnostics(
-                container,
-                result.exit_code,
-                before=before,
-            )
-            raise RuntimeError(
-                f"setup command {command!r} failed in service {spec.name!r} "
-                f"with exit code {result.exit_code}\n{output}{diagnostics}"
-            )
-
-    if spec.activate is not None:
-        result = container.exec_run(["test", "-f", spec.activate])
-        if result.exit_code != 0:
-            raise RuntimeError(
-                f"activation script {spec.activate!r} was not created "
-                f"for service {spec.name!r}"
-            )
-
-
-def _running_resource_snapshot(container: Container) -> str:
-    """Capture resource state while a service container is still running."""
-    command = r"""
-echo "--- /proc/self/cgroup"
-cat /proc/self/cgroup 2>/dev/null || true
-
-for path in \
-    /sys/fs/cgroup/memory.max \
-    /sys/fs/cgroup/memory.high \
-    /sys/fs/cgroup/memory.current \
-    /sys/fs/cgroup/memory.events \
-    /sys/fs/cgroup/memory.swap.max \
-    /sys/fs/cgroup/pids.max \
-    /sys/fs/cgroup/pids.current \
-    /sys/fs/cgroup/memory.limit_in_bytes \
-    /sys/fs/cgroup/memory.usage_in_bytes \
-    /sys/fs/cgroup/memory.failcnt \
-    /sys/fs/cgroup/memory.oom_control
-do
-    if [ -r "$path" ]; then
-        echo "--- $path"
-        cat "$path"
-    fi
-done
-
-if [ -r /proc/meminfo ]; then
-    echo "--- /proc/meminfo"
-    grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo || true
-fi
-"""
-
-    try:
-        result = container.exec_run(["/bin/sh", "-c", command])
-        output = result.output.decode(errors="replace").strip()
-        if result.exit_code != 0:
-            return f"resource snapshot failed with exit code {result.exit_code}: {output}"
-        return output
-    except Exception as exc:
-        return f"resource snapshot failed: {exc}"
-
-
-def _exit_diagnostics(
-    container: Container,
-    exit_code: int,
-    *,
-    before: str | None = None,
-) -> str:
-    """Return extra diagnostics for processes killed with SIGKILL (137)."""
-    if exit_code != 137:
-        return ""
-
-    lines = [
-        "",
-        "exit code 137 means the process was killed with SIGKILL.",
-        "Container resource diagnostics:",
-    ]
-
-    try:
-        container.reload()
-        attrs = container.attrs
-        host_config = attrs.get("HostConfig", {})
-        state = attrs.get("State", {})
-        lines.extend(
-            [
-                f"docker.status={state.get('Status')}",
-                f"docker.running={state.get('Running')}",
-                f"docker.dead={state.get('Dead')}",
-                f"docker.restarting={state.get('Restarting')}",
-                f"docker.exit_code={state.get('ExitCode')}",
-                f"docker.error={state.get('Error')!r}",
-                f"docker.oom_killed={state.get('OOMKilled', False)}",
-                f"docker.pid={state.get('Pid')}",
-                f"docker.started_at={state.get('StartedAt')}",
-                f"docker.finished_at={state.get('FinishedAt')}",
-                f"docker.restart_count={attrs.get('RestartCount', 0)}",
-                f"docker.path={attrs.get('Path')!r}",
-                f"docker.args={attrs.get('Args')!r}",
-                f"docker.memory={host_config.get('Memory', 0)}",
-                f"docker.memory_swap={host_config.get('MemorySwap', 0)}",
-                f"docker.nano_cpus={host_config.get('NanoCpus', 0)}",
-                f"docker.pids_limit={host_config.get('PidsLimit', 0)}",
-                f"docker.cgroup_parent={host_config.get('CgroupParent')!r}",
-            ]
-        )
-
-        try:
-            logs = container.logs(stdout=True, stderr=True, tail=50).decode(
-                errors="replace"
-            ).strip()
-            if logs:
-                lines.extend(["Container logs (last 50 lines):", logs])
-        except Exception as exc:
-            lines.append(f"docker.logs_error={exc}")
-    except Exception as exc:
-        lines.append(f"docker.inspect_error={exc}")
-
-    if before:
-        lines.extend(
-            [
-                "Resource state immediately before the setup command:",
-                before,
-            ]
-        )
-
-    if container.status == "running":
-        after = _running_resource_snapshot(container)
-        if after:
-            lines.extend(["Resource state after failure:", after])
-    else:
-        lines.append(
-            "Resource state after failure is unavailable because the container is not running."
-        )
-
-    return "\n" + "\n".join(lines) + "\n"
-
-
-def _copy_files(container: Container, files: list[FileSpec]) -> None:
-    archive = io.BytesIO()
-    directories: set[str] = set()
-
-    with tarfile.open(fileobj=archive, mode="w") as tar:
-        for file_spec in files:
-            target = PurePosixPath(file_spec.target)
-            relative_target = target.relative_to("/")
-
-            parent = relative_target.parent
-            parents = list(reversed(parent.parents)) + [parent]
-            for directory_path in parents:
-                directory_name = str(directory_path)
-                if directory_name in (".", "") or directory_name in directories:
-                    continue
-                directory = tarfile.TarInfo(directory_name)
-                directory.type = tarfile.DIRTYPE
-                directory.mode = 0o755
-                tar.addfile(directory)
-                directories.add(directory_name)
-
-            data = file_spec.source.read_bytes()
-            info = tarfile.TarInfo(str(relative_target))
-            info.size = len(data)
-            info.mode = 0o755 if os.access(file_spec.source, os.X_OK) else 0o444
-            tar.addfile(info, io.BytesIO(data))
-
-    if not container.put_archive("/", archive.getvalue()):
-        raise RuntimeError("could not copy fixture files into service container")
-
-
-def _docker_access_host() -> str:
-    docker_host = os.environ.get("DOCKER_HOST", "")
-    if docker_host.startswith(("tcp://", "http://", "https://")):
-        parsed = urlparse(docker_host.replace("tcp://", "http://", 1))
-        if parsed.hostname:
-            return parsed.hostname
-    return "127.0.0.1"
-
-
-def _login_to_gitlab_registry(client: docker.DockerClient) -> None:
-    registry = os.environ.get("CI_REGISTRY")
-    username = os.environ.get("CI_REGISTRY_USER")
-    password = os.environ.get("CI_REGISTRY_PASSWORD")
-    if registry and username and password:
-        client.login(username=username, password=password, registry=registry)
+# Compatibility alias for code that imported the original prototype name.
+DockerFixtureEnvironment = FixtureEnvironment

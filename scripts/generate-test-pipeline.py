@@ -4,15 +4,47 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_ROOT = ROOT / "tests"
 
 
-def job_name(test_file: Path) -> str:
+def job_name(test_file: Path, testbed: str | None = None) -> str:
     relative = test_file.relative_to(ROOT).with_suffix("")
     value = re.sub(r"[^A-Za-z0-9_-]+", "-", str(relative))
+    if testbed is not None:
+        value += "-" + re.sub(r"[^A-Za-z0-9_-]+", "-", testbed)
     return f"pytest:{value}"
+
+
+def fixture_testbeds(test_file: Path) -> list[str | None]:
+    fixture_path = test_file.parent / "fixture.yaml"
+    if not fixture_path.is_file():
+        return [None]
+
+    data = yaml.safe_load(fixture_path.read_text())
+    if not isinstance(data, dict):
+        return [None]
+
+    values: set[str] = set()
+    for service in data.get("services", []):
+        if not isinstance(service, dict):
+            continue
+        driver = service.get("driver")
+        if not isinstance(driver, dict):
+            continue
+        config = driver.get("config")
+        if not isinstance(config, dict):
+            continue
+        values.update(
+            key
+            for key in config
+            if isinstance(key, str) and key.strip() and key != "generic"
+        )
+
+    return sorted(values) if values else [None]
 
 
 def main() -> None:
@@ -39,11 +71,15 @@ def main() -> None:
 
     for test_file in tests:
         relative = test_file.relative_to(ROOT).as_posix()
-        print(f'"{job_name(test_file)}":')
-        print("  extends: .pytest-test")
-        print("  script:")
-        print(f'    - pytest -v {relative}')
-        print()
+        for testbed in fixture_testbeds(test_file):
+            print(f'"{job_name(test_file, testbed)}":')
+            print("  extends: .pytest-test")
+            print("  script:")
+            if testbed is None:
+                print(f"    - pytest -v {relative}")
+            else:
+                print(f"    - pytest -v --testbed {testbed} {relative}")
+            print()
 
 
 if __name__ == "__main__":

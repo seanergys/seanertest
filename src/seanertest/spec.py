@@ -14,9 +14,37 @@ class FileSpec:
 
 
 @dataclass(frozen=True)
+class DriverVariantSpec:
+    config: Path
+    hosts: Path
+
+
+@dataclass(frozen=True)
+class DriverSpec:
+    name: str
+    config: dict[str, DriverVariantSpec]
+
+    def select(self, testbed: str) -> DriverVariantSpec:
+        if testbed in self.config:
+            return self.config[testbed]
+        try:
+            return self.config["generic"]
+        except KeyError as exc:
+            available = ", ".join(sorted(self.config)) or "<none>"
+            raise KeyError(
+                f"driver {self.name!r} has no configuration for testbed {testbed!r} "
+                f"and no generic fallback; available: {available}"
+            ) from exc
+
+
+@dataclass(frozen=True)
 class ServiceSpec:
     name: str
-    image: str
+    driver: DriverSpec | None = None
+
+    # Legacy single-container service fields. These remain useful for simple
+    # component fixtures and keep existing SeanerTest fixtures working.
+    image: str | None = None
     config: Path | None = None
     files: list[FileSpec] = field(default_factory=list)
     setup: list[str] = field(default_factory=list)
@@ -26,11 +54,27 @@ class ServiceSpec:
     environment: dict[str, str] = field(default_factory=dict)
     ports: list[int] = field(default_factory=list)
 
+    @property
+    def is_driver_service(self) -> bool:
+        return self.driver is not None
+
 
 @dataclass(frozen=True)
 class FixtureSpec:
     path: Path
     services: list[ServiceSpec]
+
+    @property
+    def requires_machine(self) -> bool:
+        return any(service.is_driver_service for service in self.services)
+
+    @property
+    def testbeds(self) -> tuple[str, ...]:
+        values: set[str] = set()
+        for service in self.services:
+            if service.driver is not None:
+                values.update(k for k in service.driver.config if k != "generic")
+        return tuple(sorted(values))
 
 
 def load_fixture(path: Path) -> FixtureSpec:
@@ -55,10 +99,33 @@ def load_fixture(path: Path) -> FixtureSpec:
             raise ValueError(f"{where}: service must be a mapping")
 
         name = _required_string(raw, "name", where)
-        image = _required_string(raw, "image", where)
         if name in names:
             raise ValueError(f"{where}: duplicate service name {name!r}")
         names.add(name)
+
+        driver = _load_driver(path, raw.get("driver"), where)
+        image_value = raw.get("image")
+        image: str | None = None
+        if image_value is not None:
+            image = _required_string(raw, "image", where)
+
+        if driver is not None:
+            if image is not None:
+                raise ValueError(
+                    f"{where}: driver-backed services use the machine provider image; "
+                    "do not set image"
+                )
+            extra = set(raw) - {"name", "driver"}
+            if extra:
+                raise ValueError(
+                    f"{where}: driver-backed service has unsupported keys: "
+                    f"{', '.join(sorted(extra))}"
+                )
+            services.append(ServiceSpec(name=name, driver=driver))
+            continue
+
+        if image is None:
+            raise ValueError(f"{where}: image is required when driver is not set")
 
         config: Path | None = None
         if raw.get("config") is not None:
@@ -88,7 +155,9 @@ def load_fixture(path: Path) -> FixtureSpec:
             )
 
         setup = raw.get("setup", [])
-        if not isinstance(setup, list) or not all(isinstance(x, str) and x.strip() for x in setup):
+        if not isinstance(setup, list) or not all(
+            isinstance(x, str) and x.strip() for x in setup
+        ):
             raise ValueError(f"{where}: setup must be a list of non-empty shell commands")
 
         activate: str | None = None
@@ -142,6 +211,34 @@ def load_fixture(path: Path) -> FixtureSpec:
         )
 
     return FixtureSpec(path=path, services=services)
+
+
+def _load_driver(path: Path, raw: object, where: str) -> DriverSpec | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: driver must be a mapping")
+
+    name = _required_string(raw, "name", f"{where}: driver")
+    raw_config = raw.get("config")
+    if not isinstance(raw_config, dict) or not raw_config:
+        raise ValueError(f"{where}: driver.config must be a non-empty mapping")
+
+    variants: dict[str, DriverVariantSpec] = {}
+    for testbed, raw_variant in raw_config.items():
+        variant_where = f"{where}: driver.config[{testbed!r}]"
+        if not isinstance(testbed, str) or not testbed.strip():
+            raise ValueError(f"{where}: driver.config keys must be non-empty strings")
+        if not isinstance(raw_variant, dict):
+            raise ValueError(f"{variant_where}: must be a mapping")
+        config_value = _required_string(raw_variant, "config", variant_where)
+        hosts_value = _required_string(raw_variant, "hosts", variant_where)
+        variants[testbed] = DriverVariantSpec(
+            config=_local_file(path, config_value, f"{variant_where}: config"),
+            hosts=_local_file(path, hosts_value, f"{variant_where}: hosts"),
+        )
+
+    return DriverSpec(name=name, config=variants)
 
 
 def _local_file(fixture_path: Path, value: str, where: str) -> Path:
