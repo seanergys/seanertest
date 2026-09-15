@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "seanertest"
+version = "0.1.0"
+description = "Pytest-based service fixture environment for SEANERGYS integration tests"
+requires-python = ">=3.12"
+dependencies = [
+  "docker>=7.1",
+  "PyYAML>=6.0",
+  "pytest>=8.0",
+]
+
+[project.entry-points.pytest11]
+seanertest = "seanertest.pytest_plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/seanertest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
