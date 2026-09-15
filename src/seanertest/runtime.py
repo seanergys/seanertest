@@ -40,6 +40,16 @@ class Service:
     def logs(self) -> str:
         return self.container.logs(stdout=True, stderr=True).decode(errors="replace")
 
+    def exec(self, command: str | list[str]) -> str:
+        result = self.container.exec_run(command)
+        output = result.output.decode(errors="replace")
+        if result.exit_code != 0:
+            raise RuntimeError(
+                f"command {command!r} failed in service {self.name!r} "
+                f"with exit code {result.exit_code}\n{output}"
+            )
+        return output
+
 
 class Services(Mapping[str, Service]):
     def __init__(self, values: dict[str, Service]):

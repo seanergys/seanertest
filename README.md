@@ -51,3 +51,29 @@ With DinD, `endpoint()` automatically uses the hostname from `DOCKER_HOST`
 If GitLab registry variables are present, the fixture logs the Docker client in
 to `CI_REGISTRY` before pulling images, so private project/group images can be
 used directly in `fixture.yaml`.
+
+## Flux Core example
+
+`tests/flux-core/` declares a single Flux Core container and nothing else:
+
+```yaml
+version: 1
+
+services:
+  - name: flux-core
+    image: fluxrm/flux-core:latest
+    command:
+      - sleep
+      - infinity
+```
+
+The test verifies only that the Flux Core executable is present:
+
+```python
+def test_flux_core_is_available(services):
+    flux = services["flux-core"]
+    output = flux.exec(["flux", "--version"])
+    assert "flux-core" in output
+```
+
+No Flux scheduler, broker configuration, ports, or service configuration are added yet.

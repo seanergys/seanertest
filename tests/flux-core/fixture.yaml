@@ -1,0 +1,8 @@
+version: 1
+
+services:
+  - name: flux-core
+    image: fluxrm/flux-core:latest
+    command:
+      - sleep
+      - infinity
