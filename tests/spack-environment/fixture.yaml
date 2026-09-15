@@ -3,9 +3,10 @@ version: 1
 services:
   - name: spack
     image: spack/ubuntu-jammy:latest
+    entrypoint: /bin/sh
     command:
-      - sleep
-      - infinity
+      - -c
+      - exec sleep infinity
     files:
       - source: spack.yaml
         target: /opt/seanertest/env/spack.yaml

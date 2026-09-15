@@ -162,6 +162,7 @@ class DockerFixtureEnvironment:
             spec.image,
             name=f"seanertest-{self.run_id}-{spec.name}",
             command=spec.command,
+            entrypoint=spec.entrypoint,
             environment=environment,
             ports=published_ports or None,
             labels={

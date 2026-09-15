@@ -22,6 +22,7 @@ class ServiceSpec:
     setup: list[str] = field(default_factory=list)
     activate: str | None = None
     command: str | list[str] | None = None
+    entrypoint: str | list[str] | None = None
     environment: dict[str, str] = field(default_factory=dict)
     ports: list[int] = field(default_factory=list)
 
@@ -105,6 +106,12 @@ def load_fixture(path: Path) -> FixtureSpec:
         if isinstance(command, list) and not all(isinstance(x, str) for x in command):
             raise ValueError(f"{where}: command list entries must be strings")
 
+        entrypoint = raw.get("entrypoint")
+        if entrypoint is not None and not isinstance(entrypoint, (str, list)):
+            raise ValueError(f"{where}: entrypoint must be a string or list")
+        if isinstance(entrypoint, list) and not all(isinstance(x, str) for x in entrypoint):
+            raise ValueError(f"{where}: entrypoint list entries must be strings")
+
         environment = raw.get("environment", {})
         if not isinstance(environment, dict):
             raise ValueError(f"{where}: environment must be a mapping")
@@ -128,6 +135,7 @@ def load_fixture(path: Path) -> FixtureSpec:
                 setup=list(setup),
                 activate=activate,
                 command=command,
+                entrypoint=entrypoint,
                 environment=environment,
                 ports=ports,
             )
