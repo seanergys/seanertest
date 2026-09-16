@@ -136,7 +136,7 @@ def render_flux_hosts_toml(
         "hosts = [",
     ]
     lines.extend(f"  {{ host = {json.dumps(node.hostname)} }}," for node in brokers)
-    lines.extend(["]", "", "[resource]", "verify = false"])
+    lines.extend(["]", "", "[resource]", "noverify = true"])
     if excluded_ranks:
         lines.append(f'exclude = {json.dumps(_format_idset(excluded_ranks))}')
 
