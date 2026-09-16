@@ -59,7 +59,7 @@ def test_flux_host_template_concretizes_real_hostnames():
     assert 'hosts = "bsys-compute-3"' in rendered
     assert 'properties = ["compute", "bsys"]' in rendered
     assert 'exclude = "0-1"' in rendered
-    assert "verify = false" in rendered
+    assert "noverify = true" in rendered
 
     parsed = tomllib.loads(rendered)
     assert len(parsed["bootstrap"]["hosts"]) == 6
