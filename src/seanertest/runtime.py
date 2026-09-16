@@ -45,7 +45,10 @@ class FixtureEnvironment:
         self.backend.start()
         try:
             if self.machine_spec is not None:
-                self.machine = self.backend.provision_machine(self.machine_spec)
+                self.machine = self.backend.provision_machine(
+                    self.machine_spec,
+                    spack=self._machine_spack_environment(),
+                )
 
             legacy_services: list[tuple[ServiceSpec, Container]] = []
             for service_spec in self.spec.services:
@@ -86,6 +89,19 @@ class FixtureEnvironment:
         self.services.clear()
         self.machine = None
         self.backend.stop()
+
+    def _machine_spack_environment(self) -> Path | None:
+        environments = {
+            service.software.spack if service.software is not None else None
+            for service in self.spec.services
+            if service.driver is not None
+        }
+        if len(environments) > 1:
+            raise ValueError(
+                "driver-backed services sharing one machine must use the same "
+                "software.spack environment"
+            )
+        return next(iter(environments), None)
 
     def _start_driver_service(self, service_spec: ServiceSpec) -> None:
         if self.machine is None or self.testbed is None or service_spec.driver is None:

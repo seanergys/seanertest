@@ -38,9 +38,15 @@ class DriverSpec:
 
 
 @dataclass(frozen=True)
+class SoftwareSpec:
+    spack: Path
+
+
+@dataclass(frozen=True)
 class ServiceSpec:
     name: str
     driver: DriverSpec | None = None
+    software: SoftwareSpec | None = None
 
     # Legacy single-container service fields. These remain useful for simple
     # component fixtures and keep existing SeanerTest fixtures working.
@@ -103,6 +109,7 @@ def load_fixture(path: Path) -> FixtureSpec:
             raise ValueError(f"{where}: duplicate service name {name!r}")
         names.add(name)
 
+        software = _load_software(path, raw.get("software"), where)
         driver = _load_driver(path, raw.get("driver"), where)
         image_value = raw.get("image")
         image: str | None = None
@@ -115,14 +122,21 @@ def load_fixture(path: Path) -> FixtureSpec:
                     f"{where}: driver-backed services use the machine provider image; "
                     "do not set image"
                 )
-            extra = set(raw) - {"name", "driver"}
+            extra = set(raw) - {"name", "software", "driver"}
             if extra:
                 raise ValueError(
                     f"{where}: driver-backed service has unsupported keys: "
                     f"{', '.join(sorted(extra))}"
                 )
-            services.append(ServiceSpec(name=name, driver=driver))
+            services.append(
+                ServiceSpec(name=name, driver=driver, software=software)
+            )
             continue
+
+        if software is not None:
+            raise ValueError(
+                f"{where}: software is currently supported for driver-backed services"
+            )
 
         if image is None:
             raise ValueError(f"{where}: image is required when driver is not set")
@@ -211,6 +225,25 @@ def load_fixture(path: Path) -> FixtureSpec:
         )
 
     return FixtureSpec(path=path, services=services)
+
+
+def _load_software(path: Path, raw: object, where: str) -> SoftwareSpec | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: software must be a mapping")
+
+    extra = set(raw) - {"spack"}
+    if extra:
+        raise ValueError(
+            f"{where}: software only supports spack; unsupported keys: "
+            f"{', '.join(sorted(extra))}"
+        )
+
+    value = _required_string(raw, "spack", f"{where}: software")
+    return SoftwareSpec(
+        spack=_local_file(path, value, f"{where}: software.spack")
+    )
 
 
 def _load_driver(path: Path, raw: object, where: str) -> DriverSpec | None:

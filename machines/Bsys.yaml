@@ -3,7 +3,7 @@ name: Bsys
 
 provider:
   name: docker
-  image: fluxrm/flux-core:latest
+  image: spack/ubuntu-jammy:latest
   command:
     - sleep
     - infinity

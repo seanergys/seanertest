@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import socket
@@ -7,7 +8,7 @@ import tarfile
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import docker as docker_sdk
@@ -18,6 +19,8 @@ from .machine import MachineAllocation, MachineSpec
 from .spec import FileSpec, ServiceSpec
 
 _CONFIG_PATH = "/tmp/seanertest/config.yml"
+_SPACK_ENV = "/opt/seanertest/spack-env"
+_SPACK_ACTIVATE = "/opt/seanertest/spack-activate.sh"
 
 
 @dataclass
@@ -26,6 +29,20 @@ class DockerNode:
     hostname: str
     role: str
     container: Container
+    activate: str | None = None
+
+    def _activated_command(self, command: str | list[str]) -> str | list[str]:
+        if self.activate is None:
+            return command
+        if isinstance(command, str):
+            return ["/bin/sh", "-lc", f". {self.activate}\n{command}"]
+        return [
+            "/bin/sh",
+            "-lc",
+            f'. {self.activate}\nexec "$@"',
+            "seanertest",
+            *command,
+        ]
 
     def exec(
         self,
@@ -33,7 +50,9 @@ class DockerNode:
         *,
         environment: dict[str, str] | None = None,
     ) -> str:
-        result = self.container.exec_run(command, environment=environment)
+        result = self.container.exec_run(
+            self._activated_command(command), environment=environment
+        )
         output = result.output.decode(errors="replace")
         if result.exit_code != 0:
             raise RuntimeError(
@@ -48,7 +67,11 @@ class DockerNode:
         *,
         environment: dict[str, str] | None = None,
     ) -> None:
-        self.container.exec_run(command, environment=environment, detach=True)
+        self.container.exec_run(
+            self._activated_command(command),
+            environment=environment,
+            detach=True,
+        )
 
     def logs(self) -> str:
         return self.container.logs(stdout=True, stderr=True).decode(errors="replace")
@@ -115,8 +138,18 @@ class DockerBackend:
         except Exception:
             pass
 
-    def provision_machine(self, spec: MachineSpec) -> MachineAllocation:
-        self._ensure_image(spec.provider.image)
+    def provision_machine(
+        self,
+        spec: MachineSpec,
+        *,
+        spack: Path | None = None,
+    ) -> MachineAllocation:
+        image = spec.provider.image
+        activate = None
+        if spack is not None:
+            image = self.prepare_spack_image(image, spack)
+            activate = _SPACK_ACTIVATE
+        self._ensure_image(image)
         nodes: list[DockerNode] = []
         machine_prefix = _hostname_part(spec.name)
 
@@ -124,10 +157,11 @@ class DockerBackend:
             for index in range(group.count):
                 hostname = f"{machine_prefix}-{_hostname_part(group.role)}-{index}"
                 container = self.client.containers.create(
-                    spec.provider.image,
+                    image,
                     name=f"seanertest-{self.run_id}-{hostname}",
                     hostname=hostname,
                     command=spec.provider.command,
+                    entrypoint=[] if spack is not None else None,
                     environment=dict(spec.provider.environment),
                     labels={
                         "org.seanergys.seanertest": "1",
@@ -146,6 +180,7 @@ class DockerBackend:
                         hostname=hostname,
                         role=group.role,
                         container=container,
+                        activate=activate,
                     )
                 )
 
@@ -217,6 +252,63 @@ class DockerBackend:
                             f"service {spec.name!r} did not open TCP port {port}"
                         )
                     time.sleep(0.2)
+
+    def prepare_spack_image(self, base_image: str, environment: Path) -> str:
+        self._ensure_image(base_image)
+        base = self.client.images.get(base_image)
+        manifest = environment.read_bytes()
+        digest = hashlib.sha256(
+            base.id.encode() + b"\0" + manifest
+        ).hexdigest()[:20]
+        tag = f"seanertest-spack:{digest}"
+
+        try:
+            self.client.images.get(tag)
+            return tag
+        except docker_sdk.errors.ImageNotFound:
+            pass
+
+        dockerfile = f"""ARG BASE_IMAGE
+FROM ${{BASE_IMAGE}}
+COPY env.yaml /tmp/seanertest-spack.yaml
+RUN mkdir -p {_SPACK_ENV} \\
+ && spack env create --dir {_SPACK_ENV} /tmp/seanertest-spack.yaml \\
+ && spack -e {_SPACK_ENV} concretize \\
+ && spack -e {_SPACK_ENV} install \\
+ && spack env activate --sh {_SPACK_ENV} > {_SPACK_ACTIVATE} \\
+ && rm -f /tmp/seanertest-spack.yaml
+"""
+        context = io.BytesIO()
+        with tarfile.open(fileobj=context, mode="w") as archive:
+            for name, payload in (
+                ("Dockerfile", dockerfile.encode()),
+                ("env.yaml", manifest),
+            ):
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                info.mode = 0o644
+                archive.addfile(info, io.BytesIO(payload))
+        context.seek(0)
+
+        try:
+            self.client.images.build(
+                fileobj=context,
+                custom_context=True,
+                tag=tag,
+                rm=True,
+                buildargs={"BASE_IMAGE": base_image},
+            )
+        except docker_sdk.errors.BuildError as exc:
+            detail = "\n".join(
+                str(item.get("stream") or item.get("error") or "").rstrip()
+                for item in exc.build_log
+                if isinstance(item, dict)
+            ).strip()
+            raise RuntimeError(
+                f"Spack environment build failed for {environment}\n{detail}"
+            ) from exc
+
+        return tag
 
     def _ensure_image(self, image: str) -> None:
         try:
