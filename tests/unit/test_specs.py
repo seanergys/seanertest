@@ -64,5 +64,5 @@ def test_flux_host_template_concretizes_real_hostnames():
     parsed = tomllib.loads(rendered)
     assert len(parsed["bootstrap"]["hosts"]) == 6
     assert parsed["resource"]["exclude"] == "0-1"
-    assert parsed["resource"]["verify"] is False
+    assert parsed["resource"]["noverify"] is True
     assert len(parsed["resource"]["config"]) == 6
