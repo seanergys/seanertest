@@ -16,4 +16,4 @@ printf 'result-two=%s\n' "$out2"
 printf 'result-three=%s\n' "$out3"
 
 echo '--- jobs'
-flux jobs -a
+flux jobs -a -n -o '{name}'
