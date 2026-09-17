@@ -1,11 +1,12 @@
 spack:
   specs:
-    # Pin the service itself to a reproducible source revision.
-    - flux-core@917b36d1c0f282b772ab2be6dfc5eb999d3a4800
+    # Use a release archive so Flux does not require an autoreconf toolchain.
+    - flux-core@0.78.0
 
     # These are deliberately unrelated to Flux. They demonstrate that one
-    # fixture can provision several explicitly versioned packages.
-    - catch2@3.2.1
+    # fixture can provision several explicitly versioned packages. Catch2 is
+    # pinned to the commit behind v3.2.1 to demonstrate Git-revision versions.
+    - catch2@ab6c7375be9a8e71ee84c6f8537113f9f47daf99
     - m4@1.4.19
   concretizer:
     unify: true

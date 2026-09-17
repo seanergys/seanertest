@@ -80,13 +80,12 @@ services:
           hosts: configs/Bsys/hosts.yaml
 ```
 
-The accompanying `spack.yaml` can use normal Spack constraints, including a
-fully qualified Git revision:
+The accompanying `spack.yaml` pins Flux to an exact release:
 
 ```yaml
 spack:
   specs:
-    - flux-core@917b36d1c0f282b772ab2be6dfc5eb999d3a4800
+    - flux-core@0.78.0
   concretizer:
     unify: true
   view: true
@@ -175,8 +174,9 @@ their output when pytest capture is disabled with `-s`.
 `tests/example-complex-service-test` demonstrates that one fixture can combine
 a machine-backed service with ordinary container services. It provisions:
 
-- Flux, built from a pinned Git commit;
-- extra pinned Spack packages (`catch2@3.2.1` and `m4@1.4.19`);
+- Flux, pinned to release `0.78.0`;
+- extra pinned Spack packages, including Catch2 pinned to the Git commit behind
+  `v3.2.1`, and `m4@1.4.19`;
 - a MinIO object store; and
 - a PostgreSQL database.
 

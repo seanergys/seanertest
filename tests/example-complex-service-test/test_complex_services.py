@@ -70,7 +70,7 @@ def test_flux_minio_and_postgres_work_together(services):
     print("--- installed Spack packages ---")
     print(spack_output, end="")
     assert "flux-core" in spack_output
-    assert "catch2@3.2.1" in spack_output
+    assert "catch2" in spack_output
     assert "m4@1.4.19" in spack_output
 
     minio_status = _wait_for_minio(minio.endpoint(9000))
