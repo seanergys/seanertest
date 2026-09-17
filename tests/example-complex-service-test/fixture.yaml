@@ -18,7 +18,7 @@ services:
           hosts: configs/Bsys/hosts.yaml
 
   - name: minio
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     command:
       - server
       - /data
