@@ -1,6 +1,22 @@
 stages:
+  - check
   - generate
   - test
+
+test_file_names:
+  stage: check
+  image: alpine:latest
+  script:
+    - |
+      set -euo pipefail
+      MISNAMED_FILES=$(find tests/ -type f -name '*.py' -not -name 'test_main.py')
+      if test -n "$MISNAMED_FILES";
+      then
+        echo '[!!] All python files in tests/ must be called test_main.py, offending files:'
+        echo $MISNAMED_FILES
+        false
+      fi
+      echo 'test filename check passed'
 
 generate-test-pipeline:
   stage: generate
