@@ -18,6 +18,14 @@ test_file_names:
       fi
       echo 'test filename check passed'
 
+lint:reuse:
+  stage: check
+  image:
+    name: fsfe/reuse:latest
+    entrypoint: [""]
+  script:
+    - reuse lint
+
 generate-test-pipeline:
   stage: generate
   image: python:3.12-alpine
