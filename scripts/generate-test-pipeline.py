@@ -76,9 +76,9 @@ def main() -> None:
             print("  extends: .pytest-test")
             print("  script:")
             if testbed is None:
-                print(f"    - pytest -v {relative}")
+                print(f"    - pytest -v -s {relative}")
             else:
-                print(f"    - pytest -v --testbed {testbed} {relative}")
+                print(f"    - pytest -v -s --testbed {testbed} {relative}")
             print()
 
 

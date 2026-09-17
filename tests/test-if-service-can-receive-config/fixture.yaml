@@ -1,9 +1,9 @@
 version: 1
 
 services:
-  - name: alpha
+  - name: configured-service
     image: python:3.12-alpine
-    config: c.yml
+    config: config.yml
     command:
       - sh
       - -c

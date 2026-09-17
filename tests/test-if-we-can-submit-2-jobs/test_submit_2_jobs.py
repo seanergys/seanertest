@@ -7,35 +7,33 @@ EXPECTED = {
 }
 
 
-def test_hello_world_from_every_compute_node(services, testbed):
+def test_if_we_can_submit_2_jobs(services, testbed):
     flux = services["seanergys.flux"]
     assert isinstance(flux, FluxService)
     assert testbed in EXPECTED
 
     compute = flux.compute_nodes()
-    expected_hosts = {node.hostname for node in compute}
     assert len(compute) == EXPECTED[testbed]["compute"]
 
     output = flux.exec(
         [
-            "flux",
-            "run",
-            "-N",
-            str(len(compute)),
-            "-n",
-            str(len(compute)),
             "/bin/sh",
             "-c",
-            'echo "hello from $(hostname)"',
+            """
+            set -eu
+            first=$(flux submit --job-name=example-first /bin/sh -c 'echo first-job-on-$(hostname)')
+            second=$(flux submit --job-name=example-second /bin/sh -c 'echo second-job-on-$(hostname)')
+            echo "submitted=$first,$second"
+            flux job attach "$first"
+            flux job attach "$second"
+            """,
         ]
     )
 
-    seen_hosts = {
-        line.removeprefix("hello from ").strip()
-        for line in output.splitlines()
-        if line.startswith("hello from ")
-    }
-    assert seen_hosts == expected_hosts
+    print(output)
+    assert "submitted=" in output
+    assert "first-job-on-" in output
+    assert "second-job-on-" in output
 
 
 def test_flux_service_metadata(services, testbed):
@@ -52,6 +50,10 @@ def test_flux_service_metadata(services, testbed):
     assert flux.login_node().role == "login"
     assert flux.login_address() == flux.login_node().hostname
     assert flux.flux_uri().startswith("local://")
+
+    print(f"testbed={testbed}")
+    print(f"brokers={','.join(flux.hostnames())}")
+    print(f"login={flux.login_address()}")
 
     # Docker keeps the local Flux connector inside the login container, so a
     # host-side pyflux handle is normally unavailable. Other providers may

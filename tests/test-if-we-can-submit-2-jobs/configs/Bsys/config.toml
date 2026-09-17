@@ -1,0 +1,3 @@
+# Bsys-specific Flux service configuration.
+[tbon]
+tcp_user_timeout = "10s"

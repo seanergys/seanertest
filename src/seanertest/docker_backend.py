@@ -270,7 +270,7 @@ class DockerBackend:
 
         dockerfile = f"""ARG BASE_IMAGE
 FROM ${{BASE_IMAGE}}
-COPY env.yaml /tmp/seanertest-spack.yaml
+COPY spack.yaml /tmp/seanertest-spack.yaml
 RUN mkdir -p {_SPACK_ENV} \\
  && spack env create --dir {_SPACK_ENV} /tmp/seanertest-spack.yaml \\
  && spack -e {_SPACK_ENV} concretize \\
@@ -282,7 +282,7 @@ RUN mkdir -p {_SPACK_ENV} \\
         with tarfile.open(fileobj=context, mode="w") as archive:
             for name, payload in (
                 ("Dockerfile", dockerfile.encode()),
-                ("env.yaml", manifest),
+                ("spack.yaml", manifest),
             ):
                 info = tarfile.TarInfo(name)
                 info.size = len(payload)

@@ -1,7 +1,7 @@
 version: 1
 
 services:
-  - name: seanergys-flux
+  - name: job-service
     image: fluxrm/flux-core:latest
     command:
       - sleep

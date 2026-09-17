@@ -1,4 +1,5 @@
 #!/bin/sh
+# Submit three independent jobs and collect their output.
 set -eu
 
 job1=$(flux submit --job-name=seanertest-one /bin/sh -c 'echo job-one')

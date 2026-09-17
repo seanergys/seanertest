@@ -1,4 +1,5 @@
 #!/bin/sh
+# Prepare the small package environment used by this behavior test.
 set -eux
 
 SPACK=/opt/spack/bin/spack

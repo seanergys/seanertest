@@ -1,0 +1,12 @@
+spack:
+  specs:
+    # Pin the service itself to a reproducible source revision.
+    - flux-core@917b36d1c0f282b772ab2be6dfc5eb999d3a4800
+
+    # These are deliberately unrelated to Flux. They demonstrate that one
+    # fixture can provision several explicitly versioned packages.
+    - catch2@3.2.1
+    - m4@1.4.19
+  concretizer:
+    unify: true
+  view: true

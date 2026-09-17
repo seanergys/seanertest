@@ -1,5 +1,5 @@
-def test_flux_core_submits_jobs(services):
-    flux = services["seanergys-flux"]
+def test_if_we_can_submit_3_jobs(services):
+    flux = services["job-service"]
 
     output = flux.exec(
         [
@@ -11,6 +11,7 @@ def test_flux_core_submits_jobs(services):
         ]
     )
 
+    print(output)
     assert "result-one=job-one" in output
     assert "result-two=job-two" in output
     assert "result-three=job-three" in output

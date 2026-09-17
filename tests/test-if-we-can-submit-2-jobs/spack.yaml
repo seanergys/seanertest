@@ -1,0 +1,7 @@
+spack:
+  specs:
+    # A full Git commit is a valid Spack version for packages with a Git source.
+    - flux-core@917b36d1c0f282b772ab2be6dfc5eb999d3a4800
+  concretizer:
+    unify: true
+  view: true

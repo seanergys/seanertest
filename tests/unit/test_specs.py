@@ -27,7 +27,9 @@ def test_machine_descriptions_have_expected_topology():
 
 
 def test_flux_fixture_selects_testbed_specific_config():
-    fixture = load_fixture(ROOT / "tests" / "flux-service" / "fixture.yaml")
+    fixture = load_fixture(
+        ROOT / "tests" / "test-if-we-can-submit-2-jobs" / "fixture.yaml"
+    )
     driver = fixture.services[0].driver
     assert driver is not None
 
@@ -39,7 +41,12 @@ def test_flux_fixture_selects_testbed_specific_config():
 
 def test_flux_host_template_concretizes_real_hostnames():
     hosts = load_flux_hosts(
-        ROOT / "tests" / "flux-service" / "configs" / "Bsys" / "hosts.yaml"
+        ROOT
+        / "tests"
+        / "test-if-we-can-submit-2-jobs"
+        / "configs"
+        / "Bsys"
+        / "hosts.yaml"
     )
     nodes = tuple(
         SimpleNamespace(hostname=hostname, role=role)

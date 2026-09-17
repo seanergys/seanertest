@@ -1,7 +1,7 @@
 version: 1
 
 services:
-  - name: spack
+  - name: package-environment
     image: spack/ubuntu-jammy:latest
     entrypoint: /bin/sh
     command:
