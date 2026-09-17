@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+
+SPDX-License-Identifier: MIT
+-->
+
 # seanertest fixture prototype
 
 Seanertest is a pytest fixture layer for integration tests that need services on
