@@ -54,8 +54,11 @@ def main() -> None:
 
     print("stages:")
     print("  - test")
+    print(".serial:")
+    print("  resource_group: project-ci")
     print()
     print(".pytest-test:")
+    print("  extends: .serial")
     print("  stage: test")
     print("  image: python:3.12")
     print("  tags:")
