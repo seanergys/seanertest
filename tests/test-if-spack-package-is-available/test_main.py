@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
 def test_if_spack_package_is_available(services):
     environment = services["package-environment"]
 

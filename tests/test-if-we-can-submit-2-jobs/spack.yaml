@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
 spack:
   specs:
     - flux-core@0.78.0

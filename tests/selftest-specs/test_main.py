@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
 from pathlib import Path
 import tomllib
 from types import SimpleNamespace

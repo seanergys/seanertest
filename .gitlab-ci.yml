@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
 stages:
   - check
   - generate
@@ -17,6 +21,14 @@ test_file_names:
         false
       fi
       echo 'test filename check passed'
+
+lint:reuse:
+  stage: check
+  image:
+    name: fsfe/reuse:latest
+    entrypoint: [""]
+  script:
+    - reuse lint
 
 generate-test-pipeline:
   stage: generate
