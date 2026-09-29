@@ -22,8 +22,6 @@ def job_name(test_file: Path, testbed: str | None = None) -> str:
     if testbed is not None:
         value += "-" + re.sub(r"[^A-Za-z0-9_-]+", "-", testbed)
     return f"pytest:{value}"
-
-
 def fixture_testbeds(test_file: Path) -> list[str | None]:
     fixture_path = test_file.parent / "fixture.yaml"
     if not fixture_path.is_file():
@@ -84,10 +82,19 @@ def main() -> None:
             print("  extends: .pytest-test")
             print("  script:")
             if testbed is None:
-                print(f"    - pytest -v -s {relative}")
+                # print(f"    - pytest -v --junitxml junit-${{CI_JOB_ID}}.xml -s {relative}")
+                print(f"    - pytest -v --junitxml junit.xml -s {relative}")
             else:
-                print(f"    - pytest -v -s --testbed {testbed} {relative}")
+                # print(f"    - pytest -v --junitxml junit-${{CI_JOB_ID}}.xml -s --testbed {testbed} {relative}")
+                print(f"    - pytest -v --junitxml junit.xml -s --testbed {testbed} {relative}")
             print()
+
+            print("    - python -m pip install -e .")
+            print("  artifacts:")
+            print("    when: always")
+            print("    paths:")
+            # print("      - junit-${CI_JOB_ID}.xml")
+            print("      - junit.xml")
 
 
 if __name__ == "__main__":
