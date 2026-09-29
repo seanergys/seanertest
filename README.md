@@ -15,8 +15,8 @@ Driver-backed services use a selected machine description.
 Pass the machine name to pytest:
 
 ```bash
-pytest -v -s --testbed Asys tests/test-if-we-can-submit-2-jobs/test_submit_2_jobs.py
-pytest -v -s --testbed Bsys tests/test-if-we-can-submit-2-jobs/test_submit_2_jobs.py
+pytest -v -s --testbed Asys tests/test-if-we-can-submit-2-jobs/test_main.py
+pytest -v -s --testbed Bsys tests/test-if-we-can-submit-2-jobs/test_main.py
 ```
 
 `SEANERTEST_TESTBED=Asys` is also accepted. Seanertest searches upward from the
@@ -186,7 +186,7 @@ hostname and IP address observed for every service. Run it on either example
 machine with:
 
 ```bash
-pytest -v -s --testbed Asys tests/example-complex-service-test/test_complex_services.py
+pytest -v -s --testbed Asys tests/example-complex-service-test/test_main.py
 ```
 
 ## Existing single-container fixtures
@@ -212,10 +212,10 @@ The child-pipeline generator detects explicit testbed entries in a fixture's
 jobs automatically:
 
 ```text
-pytest:tests-test-if-we-can-submit-2-jobs-test_submit_2_jobs-Asys
-pytest:tests-test-if-we-can-submit-2-jobs-test_submit_2_jobs-Bsys
-pytest:tests-example-complex-service-test-test_complex_services-Asys
-pytest:tests-example-complex-service-test-test_complex_services-Bsys
+pytest:tests-test-if-we-can-submit-2-jobs-test_main-Asys
+pytest:tests-test-if-we-can-submit-2-jobs-test_main-Bsys
+pytest:tests-example-complex-service-test-test_main-Asys
+pytest:tests-example-complex-service-test-test_main-Bsys
 ```
 
 Each invokes pytest with the corresponding `--testbed` argument and gets its
