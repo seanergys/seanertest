@@ -21,18 +21,13 @@ services:
           config: configs/Bsys/config.toml
           hosts: configs/Bsys/hosts.yaml
 
-  - name: minio
-    image: quay.io/minio/minio:latest
+  - name: s3
+    image: ghcr.io/chrislusf/seaweedfs:4.38
     command:
-      - server
-      - /data
-      - --console-address
-      - :9001
-    environment:
-      MINIO_ROOT_USER: seanergys
-      MINIO_ROOT_PASSWORD: seanergys-example-password
+      - mini
+      - -ip.bind=0.0.0.0
     ports:
-      - 9000
+      - 8333
 
   - name: postgres
     image: postgres:16-alpine

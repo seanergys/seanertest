@@ -183,11 +183,11 @@ a machine-backed service with ordinary container services. It provisions:
 - Flux, pinned to release `0.78.0`;
 - extra pinned Spack packages, including Catch2 pinned to the Git commit behind
   `v3.2.1`, and `m4@1.4.19`;
-- a MinIO object store; and
+- a SeaweedFS S3-compatible object store; and
 - a PostgreSQL database.
 
 The test submits a Flux job, checks the installed Spack packages, connects to
-MinIO's health endpoint, creates and queries a PostgreSQL table, and prints the
+the S3 endpoint, creates and queries a PostgreSQL table, and prints the
 hostname and IP address observed for every service. Run it on either example
 machine with:
 

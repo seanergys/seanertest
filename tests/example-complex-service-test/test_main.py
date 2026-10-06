@@ -28,11 +28,11 @@ def _print_identity(name, service):
     assert "ip=" in identity
 
 
-def _wait_for_minio(endpoint):
+def _wait_for_s3(endpoint):
     deadline = time.monotonic() + 20
     while True:
         try:
-            with urlopen(f"{endpoint}/minio/health/live", timeout=2) as response:
+            with urlopen(endpoint, timeout=2) as response:
                 return response.status
         except OSError:
             if time.monotonic() >= deadline:
@@ -40,15 +40,15 @@ def _wait_for_minio(endpoint):
             time.sleep(0.25)
 
 
-def test_flux_minio_and_postgres_work_together(services):
+def test_flux_s3_and_postgres_work_together(services):
     flux = services["seanergys.flux"]
-    minio = services["minio"]
+    s3 = services["s3"]
     postgres = services["postgres"]
 
     assert isinstance(flux, FluxService)
 
     _print_identity("flux login", flux)
-    _print_identity("minio", minio)
+    _print_identity("s3", s3)
     _print_identity("postgres", postgres)
 
     flux_output = flux.exec(
@@ -77,9 +77,9 @@ def test_flux_minio_and_postgres_work_together(services):
     assert "catch2" in spack_output
     assert "m4@1.4.19" in spack_output
 
-    minio_status = _wait_for_minio(minio.endpoint(9000))
-    print(f"--- minio ---\nhealth_status={minio_status}")
-    assert minio_status == 200
+    s3_status = _wait_for_s3(s3.endpoint(8333))
+    print(f"--- s3 ---\nhealth_status={s3_status}")
+    assert s3_status == 200
 
     postgres_output = postgres.exec(
         [

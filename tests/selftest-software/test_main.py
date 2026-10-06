@@ -25,7 +25,7 @@ def test_complex_example_combines_driver_and_container_services():
 
     assert [service.name for service in fixture.services] == [
         "seanergys.flux",
-        "minio",
+        "s3",
         "postgres",
     ]
     assert fixture.testbeds == ("Asys", "Bsys")
@@ -33,5 +33,6 @@ def test_complex_example_combines_driver_and_container_services():
     flux = fixture.services[0]
     assert flux.software is not None
     assert flux.software.spack == test_root / "spack.yaml"
-    assert fixture.services[1].ports == [9000]
+    assert fixture.services[1].image == "ghcr.io/chrislusf/seaweedfs:4.38"
+    assert fixture.services[1].ports == [8333]
     assert fixture.services[2].ports == [5432]
