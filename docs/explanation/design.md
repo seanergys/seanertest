@@ -422,8 +422,8 @@ gigabytes, so the user decides where it is kept.
 | Question | Notes | Status |
 | --- | --- | --- |
 | How do the lock files reach the pods? | In `http` mode they can be served together with the cache. In `oci` mode they need another channel. | Open |
-| How does the build container use a `spack-packages` location other than GitHub? | Seanerstack currently fixes the GitHub URL. It needs an override before `sources.spack_packages.git` can point the build container at a local mirror. | Open |
-| Does Spack need the package recipes for binary installations? | If not, the per-host installer could skip cloning `spack-packages`. | Open |
+| How does the build container use a `spack-packages` location other than GitHub? | Seanerstack currently fixes the GitHub URL. It needs an override before `sources.spack_packages.git` can point the build container at a local mirror. | Deferred |
+| Does Spack need the package recipes for binary installations? | If it does not, the per-host installer skips cloning `spack-packages`. This is checked when Spack first runs in the Rocky Linux 10 image. | Open |
 | Which credentials does the build phase use to push to the OCI cache? | Writing requires a token with write access, which only CI should hold. | Open |
 | Which Spack target is used for `aarch64`? | Decided together with the `aarch64` builder host. | Deferred |
 | Should `shared` mode check capacity against the hosts' allocatable resources? | Without a check, pods that do not fit stay `Pending` until the readiness timeout. | Deferred |
