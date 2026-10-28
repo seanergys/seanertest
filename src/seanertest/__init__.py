@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-__version__ = "0.3.0"
+# The version is defined once, in pyproject.toml.
+__version__ = __import__("importlib.metadata").metadata.version(__package__)
 
 
 def __getattr__(name: str) -> Any:
