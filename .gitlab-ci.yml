@@ -36,15 +36,20 @@ lint:reuse:
 
 # The testbed runner, with the tags shell, testbed, generic and micro, provides
 # Docker, minikube and uv. seanerops and seanerstack come from the package
-# index that the CI/CD variables UV_INDEX and PIP_EXTRA_INDEX_URL name, with
-# their credentials; see the README. They are set outside this repository, so
-# that moving to another index changes no file here.
+# index of this project's group on this GitLab, read with the job token. uv
+# uses it for seanertest's dependencies, pip in the build container for
+# seanerstack.
 .shell:
   tags:
     - shell
     - testbed
     - generic
     - micro
+  variables:
+    UV_INDEX: "seanergys=${CI_API_V4_URL}/groups/${CI_PROJECT_NAMESPACE_ID}/-/packages/pypi/simple"
+    UV_INDEX_SEANERGYS_USERNAME: gitlab-ci-token
+    UV_INDEX_SEANERGYS_PASSWORD: "${CI_JOB_TOKEN}"
+    PIP_EXTRA_INDEX_URL: "${CI_SERVER_PROTOCOL}://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_FQDN}/api/v4/groups/${CI_PROJECT_NAMESPACE_ID}/-/packages/pypi/simple"
 
 selftest:
   extends: .shell
