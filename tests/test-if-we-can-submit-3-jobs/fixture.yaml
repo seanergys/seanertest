@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: MIT
 
-version: 1
+version: 2
 
 services:
   - name: job-service
+    driver: container
     image: fluxrm/flux-core:latest
     command:
       - sleep

@@ -2,20 +2,15 @@
 #
 # SPDX-License-Identifier: MIT
 
-version: 1
+version: 2
+
+nodes:
+  - role: node
+    count: 1
 
 services:
   - name: package-environment
-    image: spack/ubuntu-jammy:latest
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - exec sleep infinity
-    files:
-      - source: spack.yaml
-        target: /opt/seanertest/env/spack.yaml
-      - source: prepare.sh
-        target: /opt/seanertest/input/prepare.sh
-    setup:
-      - sh /opt/seanertest/input/prepare.sh
-    activate: /tmp/seanertest/activate.sh
+    driver: environment
+    roles: [node]
+    software:
+      spack: spack.yaml

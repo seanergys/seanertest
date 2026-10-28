@@ -4,235 +4,134 @@ SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
 SPDX-License-Identifier: MIT
 -->
 
-# seanertest fixture prototype
+# seanertest
 
-Seanertest is a pytest fixture layer for integration tests that need services on
-machine-shaped testbeds. The repository now has two distinct concepts:
+Seanertest runs integration tests for SEANERGYS services on testbeds. It is a pytest plugin that
+drives the complete run: it builds the software of the selected tests with seanerstack, obtains a
+testbed from seanerops, starts the services in Kubernetes pods, and runs the tests against them.
 
-1. **machine descriptions** say which execution nodes exist and how they are
-   provisioned;
-2. **service drivers** install/start a logical service across those nodes.
+## Design
 
-The original one-container-per-service fixtures continue to work unchanged.
-Driver-backed services use a selected machine description.
+- **Targets:** A target is a machine that tests run on, described by one file in `targets/`. The
+  same test runs unchanged on every target.
+- **Fixtures:** Each test directory has a `fixture.yaml` that declares the logical nodes the test
+  needs and the services that run on them.
+- **Build phase:** Before any test starts, seanertest builds every Spack environment of the
+  selected tests in the approved Rocky Linux 10 image and pushes the binaries to the target's build
+  cache.
+- **Pods:** Every logical node is a pod whose host name is the logical node name. The pods install
+  their software from the build cache and never build anything.
 
-## Selecting a machine/testbed
+The [design document](docs/explanation/design.md) explains the responsibilities of seanertest,
+seanerops and seanerstack in detail.
 
-Pass the machine name to pytest:
+## Running tests
 
-```bash
-pytest -v -s --testbed Asys tests/test-if-we-can-submit-2-jobs/test_main.py
-pytest -v -s --testbed Bsys tests/test-if-we-can-submit-2-jobs/test_main.py
-```
+The tests need a Kubernetes cluster, Docker for the build container, and access to GitHub and the
+SEANERGYS GitLab. For a local minikube cluster with the Docker driver:
 
-`SEANERTEST_TESTBED=Asys` is also accepted. Seanertest searches upward from the
-test directory for `machines/<name>.yaml`.
+1. Start minikube:
 
-The included Docker-only machines are:
+    ```bash
+    minikube start
+    ```
 
-```text
-machines/
-├── Asys.yaml   # 4 control + 1 login + 6 compute nodes
-└── Bsys.yaml   # 1 control + 1 login + 4 compute nodes
-```
+2. Write a target for it. The script finds the address of the host on minikube's network:
 
-A machine description is intentionally service-independent:
+    ```bash
+    scripts/minikube-target.sh minikube ~/.kube/config > targets/local.yml
+    ```
+
+3. Run the tests and keep the build cache between runs:
+
+    ```bash
+    uv run pytest -v -s --target local --cache-dir ~/.cache/seanertest
+    ```
+
+Without `--cache-dir`, seanertest uses a temporary directory and builds everything again in the
+next run. The first run builds the compiler and every environment, which takes a long time; later
+runs install binaries from the cache.
+
+| Option | Environment variable | Meaning |
+| --- | --- | --- |
+| `--target` | `SEANERTEST_TARGET` | A target file, or a name that refers to `targets/NAME.yml`. |
+| `--cache-dir` | `SEANERTEST_CACHE_DIR` | Directory that keeps the build cache and downloaded sources. |
+| `--seanertest-config` | | The configuration file; by default `config.yml`, found upward from the tests. |
+
+Seanerstack is installed in the build container from the SEANERGYS GitLab. If that needs
+credentials, set `SEANERTEST_GIT_TOKEN`, and optionally `SEANERTEST_GIT_USERNAME`. For a target with
+an OCI build cache, set `SEANERTEST_OCI_USERNAME` and `SEANERTEST_OCI_PASSWORD`.
+
+## Writing a test
+
+A test directory contains `test_main.py`, `fixture.yaml`, and the files the fixture refers to:
 
 ```yaml
-version: 1
-name: Asys
-
-provider:
-  name: docker
-  image: fluxrm/flux-core:latest
-  command: [sleep, infinity]
+version: 2
 
 nodes:
-  - role: control
-    count: 4
   - role: login
     count: 1
   - role: compute
-    count: 6
-```
-
-For the Docker provider, every logical node becomes one container with a stable
-hostname such as `asys-control-0` or `asys-compute-3`.
-
-## Driver-backed fixtures
-
-`tests/test-if-we-can-submit-2-jobs/fixture.yaml` declares one logical Flux
-service. Test directories describe the behavior being checked rather than the
-software used to implement it:
-
-```yaml
-version: 1
+    count: 4
 
 services:
   - name: seanergys.flux
+    driver: flux
+    roles: [login, compute]
     software:
       spack: spack.yaml
-    driver:
-      name: flux
-      config:
-        generic:
-          config: configs/generic/config.toml
-          hosts: configs/generic/hosts.yaml
-        Asys:
-          config: configs/Asys/config.toml
-          hosts: configs/Asys/hosts.yaml
-        Bsys:
-          config: configs/Bsys/config.toml
-          hosts: configs/Bsys/hosts.yaml
+    config: flux.toml
+
+  - name: postgres
+    driver: container
+    image: postgres:16-alpine
+    ports: [5432]
 ```
 
-The accompanying `spack.yaml` pins Flux to an exact release:
+| Driver | Runs on | Purpose |
+| --- | --- | --- |
+| `flux` | Logical nodes | One Flux broker per logical node of the given roles. |
+| `environment` | Logical nodes | The installed Spack environment without a running service. |
+| `container` | Its own pod | A service that keeps its own image, such as PostgreSQL. |
 
-```yaml
-spack:
-  specs:
-    - flux-core@0.78.0
-  concretizer:
-    unify: true
-  view: true
-```
+- **Allocation:** A fixture may require a mode with `allocation: {mode: exclusive}`. A test whose
+  requirement the target cannot meet is skipped with the reason.
+- **Flux options:** `options.login` names the role of the login node, by default `login`.
+  `options.schedulable` lists the roles that run jobs, by default `[compute]`.
+- **Test handles:** Tests receive the services through the `services` fixture, for example
+  `services["seanergys.flux"].exec([...])`. Container services provide `endpoint(port)`.
 
-The selected testbed chooses the matching entry. If a machine exists but there
-is no exact service configuration, `generic` is used as the fallback.
-
-Each testbed has two Flux inputs:
+## Repository structure
 
 ```text
-configs/
-├── generic/
-│   ├── config.toml
-│   └── hosts.yaml
-├── Asys/
-│   ├── config.toml
-│   └── hosts.yaml
-└── Bsys/
-    ├── config.toml
-    └── hosts.yaml
+config.yml
+targets/
+scripts/
+src/seanertest/
+tests/
+docs/
 ```
 
-`config.toml` is ordinary Flux configuration. `hosts.yaml` is deliberately not
-a concrete Flux host list. It maps machine roles onto Flux brokers and
-resources, for example:
+- **`config.yml`:** Software sources, the approved image and Spack target per architecture, the
+  compiler, and the system packages installed in the containers.
+- **`targets/`:** Target descriptions.
+- **`tests/`:** Integration tests, and the `selftest-*` directories that test seanertest itself
+  without a cluster.
 
-```yaml
-version: 1
-brokers:
-  roles: [control, login, compute]
-login:
-  role: login
-resources:
-  - role: control
-    cores: "0"
-    properties: [control]
-    schedulable: false
-  - role: login
-    cores: "0"
-    properties: [login]
-    schedulable: false
-  - role: compute
-    cores: "0"
-    properties: [compute]
-    schedulable: true
-```
+## Continuous integration
 
-The Flux driver combines this host-independent template with the actual nodes
-created by the machine provider and writes the concrete Flux `[bootstrap]` and
-`[[resource.config]]` configuration. Control and login brokers participate in
-the Flux instance but are excluded from scheduling; only compute nodes execute
-normal jobs.
+The jobs run on the runner tagged `shell`, which provides Docker, minikube and uv.
 
-## Flux service API
-
-Tests receive the service through the normal `services` fixture:
-
-```python
-flux = services["seanergys.flux"]
-```
-
-The Flux-specific handle exposes:
-
-```python
-flux.broker_nodes()    # allocated nodes running Flux brokers
-flux.compute_nodes()   # schedulable compute nodes
-flux.hostnames()       # broker hostnames in Flux rank order
-flux.login_node()      # the selected login node
-flux.login_address()   # login hostname/address
-flux.flux_uri()        # Flux URI used inside the login node
-flux.pyflux()          # real flux.Flux handle when host-side access is possible
-flux.exec([...])       # execute a command from the login node in the Flux instance
-```
-
-For the Docker backend, the Flux local connector is a UNIX socket inside the
-login container, so `pyflux()` normally returns `None`. The API is intentionally
-optional so a future provider with a host-reachable Flux URI can return a real
-`flux.Flux` object without changing tests.
-
-The integration test submits two independent jobs and prints both job IDs and
-their output when pytest capture is disabled with `-s`.
-
-## Complex multi-service example
-
-`tests/example-complex-service-test` demonstrates that one fixture can combine
-a machine-backed service with ordinary container services. It provisions:
-
-- Flux, pinned to release `0.78.0`;
-- extra pinned Spack packages, including Catch2 pinned to the Git commit behind
-  `v3.2.1`, and `m4@1.4.19`;
-- a SeaweedFS S3-compatible object store; and
-- a PostgreSQL database.
-
-The test submits a Flux job, checks the installed Spack packages, connects to
-the S3 endpoint, creates and queries a PostgreSQL table, and prints the
-hostname and IP address observed for every service. Run it on either example
-machine with:
-
-```bash
-pytest -v -s --testbed Asys tests/example-complex-service-test/test_main.py
-```
-
-## Existing single-container fixtures
-
-Simple fixtures remain valid:
-
-```yaml
-version: 1
-services:
-  - name: configured-service
-    image: python:3.12-alpine
-    config: config.yml
-    ports: [8080]
-```
-
-These are still useful for component tests that do not need a machine-level
-service driver.
-
-## CI
-
-The child-pipeline generator detects explicit testbed entries in a fixture's
-`driver.config`. A test file using the Flux fixture therefore becomes two CI
-jobs automatically:
-
-```text
-pytest:tests-test-if-we-can-submit-2-jobs-test_main-Asys
-pytest:tests-test-if-we-can-submit-2-jobs-test_main-Bsys
-pytest:tests-example-complex-service-test-test_main-Asys
-pytest:tests-example-complex-service-test-test_main-Bsys
-```
-
-Each invokes pytest with the corresponding `--testbed` argument and gets its
-own DinD daemon/network. Generated commands use `pytest -v -s`, so service and
-test output remains visible in the GitLab job log.
+| Job | Purpose |
+| --- | --- |
+| `selftest` | Runs the self-tests. |
+| `integration:minikube` | Starts a minikube profile, writes a target for it, and runs the integration tests. |
 
 ## Documentation
 
-The documentation in `docs/` describes the intended design of seanertest, seanerops and
-seanerstack, most of which is not yet implemented. Build and serve it locally with:
+Build and serve the documentation locally with:
 
 ```bash
-uv run --group docs properdocs serve
+uv run --no-project --with "properdocs>=1.6.7" --with "mkdocs-materialx>=10.2.0" properdocs serve
 ```

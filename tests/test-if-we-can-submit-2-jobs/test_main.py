@@ -4,20 +4,16 @@
 
 from seanertest import FluxService
 
+# The fixture asks for one control, one login and four compute nodes; the
+# counts are the same on every target.
+BROKERS = 6
+COMPUTE = 4
 
-EXPECTED = {
-    "Asys": {"brokers": 11, "compute": 6, "control": 4},
-    "Bsys": {"brokers": 6, "compute": 4, "control": 1},
-}
 
-
-def test_if_we_can_submit_2_jobs(services, testbed):
+def test_if_we_can_submit_2_jobs(services):
     flux = services["seanergys.flux"]
     assert isinstance(flux, FluxService)
-    assert testbed in EXPECTED
-
-    compute = flux.compute_nodes()
-    assert len(compute) == EXPECTED[testbed]["compute"]
+    assert len(flux.compute_nodes()) == COMPUTE
 
     output = flux.exec(
         [
@@ -36,32 +32,31 @@ def test_if_we_can_submit_2_jobs(services, testbed):
 
     print(output)
     assert "submitted=" in output
-    assert "first-job-on-" in output
-    assert "second-job-on-" in output
+    assert "first-job-on-compute-" in output
+    assert "second-job-on-compute-" in output
 
 
 def test_flux_service_metadata(services, testbed):
     flux = services["seanergys.flux"]
     assert isinstance(flux, FluxService)
-    assert testbed in EXPECTED
 
     brokers = flux.broker_nodes()
-    assert len(brokers) == EXPECTED[testbed]["brokers"]
-    assert sum(node.role == "control" for node in brokers) == EXPECTED[testbed]["control"]
-    assert len(flux.compute_nodes()) == EXPECTED[testbed]["compute"]
-
-    assert flux.hostnames() == tuple(node.hostname for node in brokers)
+    assert len(brokers) == BROKERS
+    assert [node.role for node in brokers] == ["control", "login"] + ["compute"] * COMPUTE
+    assert flux.hostnames() == ("control-0", "login-0", "compute-0", "compute-1", "compute-2", "compute-3")
     assert flux.login_node().role == "login"
-    assert flux.login_address() == flux.login_node().hostname
+    assert flux.login_address() == "login-0"
     assert flux.flux_uri().startswith("local://")
+
+    # Every broker carries its role and the target name as Flux properties.
+    resources = flux.exec(["flux", "resource", "list", "--format", "{properties}"])
+    assert "compute" in resources
+    assert testbed in resources
 
     print(f"testbed={testbed}")
     print(f"brokers={','.join(flux.hostnames())}")
-    print(f"login={flux.login_address()}")
+    print(f"hosts={','.join(sorted({node.host for node in brokers}))}")
 
-    # Docker keeps the local Flux connector inside the login container, so a
-    # host-side pyflux handle is normally unavailable. Other providers may
-    # expose a URI that allows this method to return a real flux.Flux handle.
     handle = flux.pyflux()
     if handle is not None:
-        assert int(handle.attr_get("size")) == EXPECTED[testbed]["brokers"]
+        assert int(handle.attr_get("size")) == BROKERS

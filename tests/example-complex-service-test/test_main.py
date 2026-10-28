@@ -68,14 +68,19 @@ def test_flux_s3_and_postgres_work_together(services):
     print(flux_output, end="")
     assert "flux-job-host=" in flux_output
 
-    spack_output = flux.exec(
-        ["spack", "find", "--format", "{name}@{version}", "flux-core", "catch2", "m4"]
+    # The pods see the environment through its activated Spack view.
+    software_output = flux.exec(
+        [
+            "/bin/sh",
+            "-c",
+            'flux version; m4 --version | head -1; ls "$SPACK_ENV/.spack-env/view/include" | grep catch2',
+        ]
     )
-    print("--- installed Spack packages ---")
-    print(spack_output, end="")
-    assert "flux-core" in spack_output
-    assert "catch2" in spack_output
-    assert "m4@1.4.19" in spack_output
+    print("--- installed software ---")
+    print(software_output, end="")
+    assert "0.78.0" in software_output
+    assert "1.4.19" in software_output
+    assert "catch2" in software_output
 
     s3_status = _wait_for_s3(s3.endpoint(8333))
     print(f"--- s3 ---\nhealth_status={s3_status}")

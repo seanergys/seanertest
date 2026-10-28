@@ -2,27 +2,26 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""SEANERGYS pytest service fixtures."""
+"""SEANERGYS integration tests on testbeds."""
 
 from __future__ import annotations
 
 from typing import Any
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def __getattr__(name: str) -> Any:
-    # Keep importing seanertest lightweight for schema/config tooling while
-    # preserving convenient runtime imports for tests.
+    # Importing seanertest stays light; the classes load on first use.
     if name == "FluxService":
-        from .drivers.flux import FluxService
+        from seanertest.drivers.flux import FluxService
 
         return FluxService
-    if name in {"Service", "Services"}:
-        from .service import Service, Services
+    if name in {"Service", "Services", "ContainerService"}:
+        from seanertest import service
 
-        return {"Service": Service, "Services": Services}[name]
+        return getattr(service, name)
     raise AttributeError(name)
 
 
-__all__ = ["FluxService", "Service", "Services"]
+__all__ = ["ContainerService", "FluxService", "Service", "Services"]

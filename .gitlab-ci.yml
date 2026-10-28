@@ -4,7 +4,6 @@
 
 stages:
   - check
-  - generate
   - test
 
 test_file_names:
@@ -30,24 +29,51 @@ lint:reuse:
   script:
     - reuse lint
 
-generate-test-pipeline:
-  stage: generate
-  image: python:3.12-alpine
+# The runner tagged `shell` provides Docker, minikube and uv. seanerops and
+# seanerstack are installed from GitLab with the job token, passed through
+# Git's environment configuration so that nothing is written to the runner.
+.shell:
   tags:
-    - docker
-  before_script:
-    - python -m pip install PyYAML
-  script:
-    - python scripts/generate-test-pipeline.py > generated-test-pipeline.yml
-    - cat generated-test-pipeline.yml
-  artifacts:
-    paths:
-      - generated-test-pipeline.yml
+    - shell
+  variables:
+    GIT_CONFIG_COUNT: "1"
+    GIT_CONFIG_KEY_0: "url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.seanergys.fz-juelich.de/.insteadOf"
+    GIT_CONFIG_VALUE_0: "https://gitlab.seanergys.fz-juelich.de/"
+    SEANERTEST_GIT_USERNAME: gitlab-ci-token
+    SEANERTEST_GIT_TOKEN: ${CI_JOB_TOKEN}
 
-run-tests:
+selftest:
+  extends: .shell
   stage: test
-  trigger:
-    include:
-      - artifact: generated-test-pipeline.yml
-        job: generate-test-pipeline
-    strategy: mirror
+  script:
+    - uv run pytest -v --junitxml junit-selftest.xml tests/selftest-*
+  artifacts:
+    when: always
+    reports:
+      junit: junit-selftest.xml
+
+integration:minikube:
+  extends: .shell
+  stage: test
+  resource_group: minikube
+  variables:
+    MINIKUBE_PROFILE: seanertest-ci
+    KUBECONFIG: ${CI_PROJECT_DIR}/.ci/kubeconfig
+    # Kept on the runner, so that later pipelines install binaries instead of
+    # building them.
+    SEANERTEST_CACHE_DIR: ${HOME}/.cache/seanertest-ci
+  before_script:
+    - mkdir -p .ci
+    - minikube delete --profile "$MINIKUBE_PROFILE" || true
+    - minikube start --profile "$MINIKUBE_PROFILE" --driver docker --cpus 4 --memory 8g --wait all
+    - scripts/minikube-target.sh "$MINIKUBE_PROFILE" "$KUBECONFIG" > .ci/target.yml
+  script:
+    - >-
+      uv run pytest -v -s --target .ci/target.yml --junitxml junit-integration.xml
+      $(find tests -mindepth 1 -maxdepth 1 -type d ! -name 'selftest-*' | sort)
+  after_script:
+    - minikube delete --profile "$MINIKUBE_PROFILE" || true
+  artifacts:
+    when: always
+    reports:
+      junit: junit-integration.xml

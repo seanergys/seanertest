@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: MIT
 
-version: 1
+version: 2
 
 services:
   - name: configured-service
+    driver: container
     image: python:3.12-alpine
     config: config.yml
     command:

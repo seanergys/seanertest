@@ -1,0 +1,196 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+"""Shell scripts run inside the approved Rocky Linux image.
+
+The build script runs once per architecture in a build container. It installs
+every environment of the selected tests into one Spack instance and pushes the
+binaries to the build cache. The install script runs in one installer pod per
+host. It installs an environment from the build cache, never from source.
+
+Both use the same install root, so binaries need no relocation between the
+build container and the pods.
+"""
+
+from __future__ import annotations
+
+import shlex
+from dataclasses import dataclass
+
+# Root of everything seanertest puts into containers. On cluster hosts it is a
+# hostPath directory shared by the pods of that host.
+PREFIX = "/opt/seanertest"
+
+# Seanerstack state directory in the build container. Its store is the install
+# root, which the pods use as well.
+STATE_DIR = f"{PREFIX}/state"
+STORE = f"{STATE_DIR}/spack/store"
+
+# Name of the build cache in Spack's mirror configuration.
+MIRROR = "seanertest-cache"
+
+# Credentials for an OCI build cache, read by Spack from these variables.
+OCI_USERNAME = "SEANERTEST_OCI_USERNAME"
+OCI_PASSWORD = "SEANERTEST_OCI_PASSWORD"
+
+
+@dataclass(frozen=True)
+class BuildSettings:
+    spack_git: str
+    spack_version: str
+    seanerstack_pip: str
+    compiler: str
+    target: str
+    packages: tuple[str, ...]
+    environments: tuple[str, ...]
+    cache_url: str
+    oci: bool
+    host_uid: int
+    host_gid: int
+
+
+@dataclass(frozen=True)
+class InstallSettings:
+    spack_git: str
+    spack_version: str
+    spack_packages_git: str
+    spack_packages_commit: str
+    packages: tuple[str, ...]
+    environment: str
+    cache_url: str
+    oci: bool
+
+
+def spack_root(version: str) -> str:
+    return f"{PREFIX}/spack-{version}"
+
+
+def environment_dir(environment: str) -> str:
+    return f"{PREFIX}/environments/{environment}"
+
+
+def activation_script(environment: str) -> str:
+    return f"{environment_dir(environment)}/activate.sh"
+
+
+def _mirror_add(url: str, oci: bool) -> str:
+    credentials = ""
+    if oci:
+        credentials = f" --oci-username-variable {OCI_USERNAME} --oci-password-variable {OCI_PASSWORD}"
+    return (
+        f"spack mirror remove --scope user {MIRROR} >/dev/null 2>&1 || true\n"
+        f"spack mirror add --scope user --type binary --unsigned{credentials} {MIRROR} {shlex.quote(url)}\n"
+    )
+
+
+def _dnf(packages: tuple[str, ...]) -> str:
+    if not packages:
+        return ""
+    return f"dnf install -y --setopt=install_weak_deps=False {' '.join(map(shlex.quote, packages))}\n"
+
+
+def _clone_spack(git: str, version: str) -> str:
+    root = spack_root(version)
+    return (
+        f"if [ ! -x {root}/bin/spack ]; then\n"
+        f"  rm -rf {root}.partial\n"
+        f"  git clone --depth 1 --branch {shlex.quote(version)} {shlex.quote(git)} {root}.partial\n"
+        f"  mv {root}.partial {root}\n"
+        "fi\n"
+    )
+
+
+def build_script(settings: BuildSettings) -> str:
+    """The script of the build container.
+
+    The cache directory of the host is mounted at /cache and the session's
+    environments at /work/environments/<id>/spack.yaml.
+    """
+    root = spack_root(settings.spack_version)
+    seanerstack = f"seanerstack --state-dir {STATE_DIR} --spack-executable {root}/bin/spack"
+    lines = [
+        "set -euo pipefail",
+        "",
+        "# The image lacks most tools that Spack needs, and the compiler bootstrap",
+        "# needs the system compiler.",
+        _dnf(settings.packages).rstrip(),
+        _clone_spack(settings.spack_git, settings.spack_version).rstrip(),
+        "python3 -m venv /opt/seanerstack",
+        f"/opt/seanerstack/bin/pip install --quiet {shlex.quote(settings.seanerstack_pip)}",
+        "export PATH=/opt/seanerstack/bin:$PATH",
+        "",
+        "# Downloaded sources survive in the host's cache directory.",
+        f"mkdir -p {STATE_DIR}/spack /cache/source-cache /cache/environments",
+        f"ln -sfn /cache/source-cache {STATE_DIR}/spack/source-cache",
+        f'eval "$({seanerstack} activate)"',
+        _mirror_add(settings.cache_url, settings.oci).rstrip(),
+        f"spack config add {shlex.quote(f'packages:all:require:target={settings.target}')}",
+        "",
+        "# The bootstrapped compiler comes from the build cache when it is there.",
+        f"{seanerstack} toolchain bootstrap {shlex.quote(settings.compiler)}",
+        "",
+    ]
+    for environment in settings.environments:
+        work = f"/work/environments/{environment}"
+        lines += [
+            f"echo '==> environment {environment}'",
+            f"spack -e {work} concretize --force",
+            f'spack -e {work} install --jobs "$(nproc)"',
+            f"mkdir -p /cache/environments/{environment}",
+            f"cp {work}/spack.yaml {work}/spack.lock /cache/environments/{environment}/",
+            "",
+        ]
+    lines += [
+        "# Push everything, the compiler included, so that the next build and the",
+        "# pods install binaries instead of building.",
+        f"spack buildcache push --unsigned --update-index --only package {MIRROR} $(spack find --format '/{{hash}}')",
+    ]
+    if not settings.oci:
+        lines.append(f"chown -R {settings.host_uid}:{settings.host_gid} /cache")
+    return "\n".join(line for line in lines if line is not None) + "\n"
+
+
+def install_script(settings: InstallSettings) -> str:
+    """The script of an installer pod.
+
+    The environment's spack.yaml and spack.lock are mounted at /seanertest.
+    PREFIX is a hostPath directory, so the result is shared by every pod on
+    the host and reused by later sessions.
+    """
+    root = spack_root(settings.spack_version)
+    target = environment_dir(settings.environment)
+    commit = settings.spack_packages_commit
+    repos = (
+        "repos::\n"
+        "  builtin:\n"
+        f"    git: {settings.spack_packages_git}\n"
+        f"    commit: {commit}\n"
+        f"    destination: {PREFIX}/package_repos/builtin-{commit[:12]}\n"
+    )
+    config = (
+        "config:\n"
+        f"  install_tree:\n    root: {STORE}\n"
+        f"  build_stage:\n  - {PREFIX}/stage\n"
+        f"  misc_cache: {PREFIX}/cache/misc\n"
+    )
+    return "\n".join(
+        [
+            "set -euo pipefail",
+            f"if [ -f {target}/.installed ]; then echo 'environment already installed'; exit 0; fi",
+            _dnf(settings.packages).rstrip(),
+            _clone_spack(settings.spack_git, settings.spack_version).rstrip(),
+            f"export PATH={root}/bin:$PATH",
+            f"export SPACK_USER_CONFIG_PATH={PREFIX}/user SPACK_USER_CACHE_PATH={PREFIX}/cache",
+            "unset SPACK_DISABLE_LOCAL_CONFIG",
+            f"mkdir -p {PREFIX}/user {target}",
+            f"cat > {PREFIX}/user/config.yaml <<'EOF'\n{config}EOF",
+            f"cat > {PREFIX}/user/repos.yaml <<'EOF'\n{repos}EOF",
+            _mirror_add(settings.cache_url, settings.oci).rstrip(),
+            f"cp /seanertest/spack.yaml /seanertest/spack.lock {target}/",
+            f"spack -e {target} install --use-buildcache only",
+            f"spack env activate --sh -d {target} > {target}/activate.sh",
+            f"touch {target}/.installed",
+            "",
+        ]
+    )

@@ -2,26 +2,24 @@
 #
 # SPDX-License-Identifier: MIT
 
-version: 1
+version: 2
+
+nodes:
+  - role: login
+    count: 1
+  - role: compute
+    count: 2
 
 services:
   - name: seanergys.flux
+    driver: flux
+    roles: [login, compute]
     software:
       spack: spack.yaml
-    driver:
-      name: flux
-      config:
-        generic:
-          config: configs/generic/config.toml
-          hosts: configs/generic/hosts.yaml
-        Asys:
-          config: configs/Asys/config.toml
-          hosts: configs/Asys/hosts.yaml
-        Bsys:
-          config: configs/Bsys/config.toml
-          hosts: configs/Bsys/hosts.yaml
+    config: flux.toml
 
   - name: s3
+    driver: container
     image: ghcr.io/chrislusf/seaweedfs:4.38
     command:
       - mini
@@ -30,6 +28,7 @@ services:
       - 8333
 
   - name: postgres
+    driver: container
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: seanergys

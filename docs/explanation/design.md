@@ -8,7 +8,8 @@ SPDX-License-Identifier: MIT
 
 This page describes the intended setup of seanertest and how it works together with seanerops and
 seanerstack. It records the decisions taken so far, the alternatives that were rejected, and the
-questions that are still open. Most of the design is not yet implemented.
+questions that are still open. The section [Implementation status](#implementation-status) shows
+which parts are implemented and which have run against a real cluster.
 
 Seanertest and seanerops may be rewritten completely to follow this design. Backward compatibility
 with their current interfaces is not a goal.
@@ -303,24 +304,32 @@ sources:
     version: v1.2.2
   spack_packages:
     git: https://github.com/spack/spack-packages.git
+  seanerstack:
+    pip: seanerstack @ git+https://gitlab.seanergys.fz-juelich.de/software/seanerstack.git@main
+
+compiler: gcc@15
 
 architectures:
   x86_64:
-    image: rockylinux/rockylinux:10
+    image: docker.io/rockylinux/rockylinux:10
     target: x86_64_v3
 
 system_packages:
-  build: [python3, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file, gcc, gcc-c++, make]
-  install: [python3, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file]
+  build: [python3, python3-pip, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file, which, findutils, diffutils, gcc, gcc-c++, gcc-gfortran, make]
+  install: [python3, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file, which, findutils]
+  node: [hostname, procps-ng]
 ```
 
 | Setting | Meaning | Status |
 | --- | --- | --- |
 | `sources.spack` | Where Spack is fetched from, and the pinned Spack version. | Decided |
 | `sources.spack_packages.git` | Where `spack-packages` is fetched from. The commit is not set here, because seanerstack owns it. | Decided |
+| `sources.seanerstack.pip` | The pip requirement that installs seanerstack in the build container. | Decided |
+| `compiler` | The compiler that seanerstack's bootstrap installs in the build container. | Decided |
 | `architectures` | The approved image and the Spack target for each architecture. | Decided |
 | `system_packages.build` | Packages installed in the build container. | Proposed |
-| `system_packages.install` | Packages installed where pods run Spack to install from the build cache. | Proposed |
+| `system_packages.install` | Packages installed in the installer pods, which run Spack to install from the build cache. | Proposed |
+| `system_packages.node` | Packages installed in the pods of logical nodes, such as `hostname`. | Proposed |
 
 The exact package lists are a starting point and will be adjusted once Spack runs in the Rocky
 Linux 10 image.
@@ -348,7 +357,7 @@ The build phase runs before any testbed is requested and before any test starts.
 | Target | Cache | Written by | Read by pods through | Status |
 | --- | --- | --- | --- | --- |
 | Single node | A directory on the host, chosen with `--cache-dir` | The build phase, through Spack's `autopush` | HTTP, served by seanertest | Decided |
-| Multiple nodes | The OCI registry | The build phase | The registry, with a read-only token | Not yet implemented |
+| Multiple nodes | The OCI registry | The build phase | The registry, with a read-only token | Decided |
 
 The filesystem cache is not used to fill the OCI cache.
 
@@ -421,7 +430,6 @@ gigabytes, so the user decides where it is kept.
 
 | Question | Notes | Status |
 | --- | --- | --- |
-| How do the lock files reach the pods? | In `http` mode they can be served together with the cache. In `oci` mode they need another channel. | Open |
 | How does the build container use a `spack-packages` location other than GitHub? | Seanerstack currently fixes the GitHub URL. It needs an override before `sources.spack_packages.git` can point the build container at a local mirror. | Deferred |
 | Does Spack need the package recipes for binary installations? | If it does not, the per-host installer skips cloning `spack-packages`. This is checked when Spack first runs in the Rocky Linux 10 image. | Open |
 | Which credentials does the build phase use to push to the OCI cache? | Writing requires a token with write access, which only CI should hold. | Open |
@@ -429,15 +437,25 @@ gigabytes, so the user decides where it is kept.
 | Should `shared` mode check capacity against the hosts' allocatable resources? | Without a check, pods that do not fit stay `Pending` until the readiness timeout. | Deferred |
 | Should a request allow a different mode for each role? | Not needed so far. | Deferred |
 
-## Implementation order
+## Implementation status
 
-1. **seanerops:** Library and command-line interface, target descriptions, node requests,
-   allocation in both modes, `testbed.json`, and the `external` runtime for existing clusters.
-2. **seanertest:** Build phase, cache directory, and the HTTP cache server.
-3. **seanertest:** Kubernetes backend with one pod per logical node, installation from the build
-   cache, and the testbed lifecycle.
-4. **seanertest:** Fixture version 2, the Flux driver ported to the new backend, and the `container`
-   driver.
-5. **seanertest:** Continuous integration with the matrix derived from targets, and removal of the
-   current Docker machine provider.
-6. **seanerops and seanertest:** OCI build cache for multi-node targets.
+| Part | Where | Status |
+| --- | --- | --- |
+| Target descriptions, node requests, allocation in both modes, `testbed.json` | seanerops | Implemented and unit-tested |
+| Library lifecycle with `testbed()`, and the thin command-line interface | seanerops | Implemented and unit-tested |
+| `external` runtime on minikube | seanerops | Implemented; integration test runs on the `shell` runner |
+| `k3s` runtime on BareMetal | seanerops | Implemented; integration test runs on the `dind` runner |
+| Pinned `spack-packages` commit | seanerstack | Implemented and unit-tested |
+| Fixture version 2, configuration, targets | seanertest | Implemented and unit-tested |
+| Build phase in the Rocky Linux 10 build container | seanertest | Implemented; not yet run against Spack |
+| HTTP cache server | seanertest | Implemented and unit-tested |
+| Kubernetes backend, installer pods, node pods, container services | seanertest | Implemented; not yet run against a cluster |
+| Flux, `environment` and `container` drivers | seanertest | Implemented; not yet run against a cluster |
+| OCI build cache | seanertest | Implemented; not yet tested |
+| Continuous integration on the `shell` runner | seanerops, seanertest | Implemented; not yet run |
+| `aarch64` | seanertest | Not yet implemented |
+
+- **Lock files:** Pods receive the lock file of their environment in a ConfigMap together with the
+  install script. This works for both cache types.
+- **Recipes in pods:** The installer pods clone the pinned `spack-packages` commit. Whether Spack
+  needs it for binary installations is still to be checked.

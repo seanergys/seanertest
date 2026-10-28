@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 1
+name: deep
+architecture: x86_64
+runtime:
+  type: k3s
+  data_dir: /scratch/k3s
+nodes:
+  control:
+    - dp-cn43
+  workers:
+    - dp-cn44
+    - dp-cn45
+    - dp-cn46
+    - dp-cn47
+    - dp-cn48
+    - dp-cn49
+    - dp-cn50
+cache:
+  type: oci
+  url: oci://registry.seanergys.fz-juelich.de/software/seanertest/buildcache
