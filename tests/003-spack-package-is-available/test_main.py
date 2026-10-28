@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-def test_if_spack_package_is_available(services):
+def test_spack_package_is_available(services):
     environment = services["package-environment"]
 
     output = environment.exec(["m4", "--version"])

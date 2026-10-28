@@ -84,9 +84,10 @@ def group_request(target: seanerops.Target, fixtures: Iterable[FixtureSpec]) -> 
     return Request.merge(requests)
 
 
-def kubernetes_name(value: str, limit: int = 40) -> str:
+def kubernetes_name(value: str, limit: int = 40, *, leading_letter: bool = True) -> str:
+    """A DNS label from ``value``; with ``leading_letter``, it starts with a letter."""
     name = re.sub(r"[^a-z0-9-]+", "-", value.lower()).strip("-")[:limit].strip("-")
-    if not name or not name[0].isalpha():
+    if leading_letter and (not name or not name[0].isalpha()):
         name = f"s-{name}"
     return name
 
@@ -201,7 +202,9 @@ class Session:
     def services(self, fixture: FixtureSpec, module: str):
         current = self.acquire(group_key(self.target, fixture))
         cluster = current.cluster
-        namespace = f"st-{kubernetes_name(module, 48)}-{secrets.token_hex(3)}"
+        # The prefix already starts with a letter, so numbered test directories
+        # keep their number at the front.
+        namespace = f"st-{kubernetes_name(module, 48, leading_letter=False)}-{secrets.token_hex(3)}"
         cluster.create(manifests.namespace(namespace))
         drivers: list[ServiceDriver] = []
         try:

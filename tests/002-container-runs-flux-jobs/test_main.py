@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-def test_if_we_can_submit_3_jobs(services):
+def test_container_runs_flux_jobs(services):
     flux = services["job-service"]
 
     output = flux.exec(

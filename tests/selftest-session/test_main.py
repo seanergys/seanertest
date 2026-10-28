@@ -38,7 +38,7 @@ def test_group_request_merges_with_the_mode_made_explicit(laptop):
 
 def test_kubernetes_names_are_dns_labels():
     assert kubernetes_name("seanergys.flux") == "seanergys-flux"
-    assert kubernetes_name("test-if-we-can-submit-2-jobs") == "test-if-we-can-submit-2-jobs"
+    assert kubernetes_name("004-flux-submits-two-jobs", leading_letter=False) == "004-flux-submits-two-jobs"
     assert kubernetes_name("3rd") == "s-3rd"
 
 

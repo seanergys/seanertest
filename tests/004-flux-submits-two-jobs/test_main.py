@@ -10,7 +10,7 @@ BROKERS = 6
 COMPUTE = 4
 
 
-def test_if_we_can_submit_2_jobs(services):
+def test_flux_submits_two_jobs(services):
     flux = services["seanergys.flux"]
     assert isinstance(flux, FluxService)
     assert len(flux.compute_nodes()) == COMPUTE
