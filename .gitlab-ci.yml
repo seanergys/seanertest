@@ -5,6 +5,7 @@
 stages:
   - check
   - test
+  - publish
 
 test_file_names:
   stage: check
@@ -88,3 +89,52 @@ integration:minikube:
     when: always
     reports:
       junit: junit-integration.xml
+
+publish:
+  stage: publish
+  tags:
+    - docker
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  environment:
+    name: gitlab-pypi
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - when: never
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - echo "Publishing seanertest ${VERSION} to GitLab PyPI"
+    - PACKAGE_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+    - >-
+      if [ "${VERSION}" != "${PACKAGE_VERSION}" ]; then
+      echo "Tag ${CI_COMMIT_TAG} does not match version ${PACKAGE_VERSION} in pyproject.toml";
+      exit 1;
+      fi
+    - uv build --no-sources
+    - >-
+      uv publish
+      --publish-url "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
+      --username gitlab-ci-token
+      --password "${CI_JOB_TOKEN}"
+
+# Living at head: every push to the default branch publishes a development
+# build, <next patch>.dev<pipeline number>, for example 0.1.4.dev57. Consumers
+# that ask for development builds get the newest one; tagged releases stay the
+# stable versions and sort after the development builds before them.
+publish:dev:
+  stage: publish
+  tags:
+    - docker
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  environment:
+    name: gitlab-pypi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - uv version --frozen --bump patch --bump "dev=${CI_PIPELINE_IID}"
+    - echo "Publishing seanertest $(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])') to GitLab PyPI"
+    - uv build --no-sources
+    - >-
+      uv publish
+      --publish-url "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
+      --username gitlab-ci-token
+      --password "${CI_JOB_TOKEN}"
