@@ -212,7 +212,9 @@ def _run_build(
         if credentials is not None:
             environment_variables[UPSTREAM_USERNAME], environment_variables[UPSTREAM_PASSWORD] = credentials
         upstream_urls.append(url)
-    with tempfile.TemporaryDirectory(prefix="seanertest-build-") as work:
+    # The build script returns its files to the calling user; should that ever
+    # fail, a leftover directory must not abort the session.
+    with tempfile.TemporaryDirectory(prefix="seanertest-build-", ignore_cleanup_errors=True) as work:
         work_dir = Path(work)
         for key, content in environments.items():
             directory = work_dir / "environments" / key

@@ -55,7 +55,8 @@ def test_build_script_bootstraps_the_compiler_builds_every_environment_and_pushe
         in script
     )
     assert "buildcache push --unsigned --update-index" in script
-    assert "chown -R 1000:1000 /cache" in script
+    assert "trap 'chown -R 1000:1000 /cache /work' EXIT" in script
+    assert script.index("trap") < script.index("dnf install")
     assert "--oci-username-variable" not in script
 
 

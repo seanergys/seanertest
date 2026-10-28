@@ -125,6 +125,9 @@ def build_script(settings: BuildSettings) -> str:
     seanerstack = f"seanerstack --state-dir {STATE_DIR} --spack-executable {root}/bin/spack"
     lines = [
         "set -euo pipefail",
+        "# The container runs as root. Return everything it wrote on the host to the",
+        "# calling user, also when the build fails halfway.",
+        f"trap 'chown -R {settings.host_uid}:{settings.host_gid} /cache /work' EXIT",
         "",
         "# The image lacks most tools that Spack needs, and the compiler bootstrap",
         "# needs the system compiler.",
@@ -175,7 +178,6 @@ def build_script(settings: BuildSettings) -> str:
         "# Push everything, the compiler and what came from upstream caches included,",
         "# so that the next build and the pods install binaries instead of building.",
         f"spack buildcache push --unsigned --update-index --only package {MIRROR} $(spack find --format '/{{hash}}')",
-        f"chown -R {settings.host_uid}:{settings.host_gid} /cache",
     ]
     return "\n".join(line for line in lines if line is not None) + "\n"
 
