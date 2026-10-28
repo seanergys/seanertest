@@ -448,7 +448,7 @@ gigabytes, so the user decides where it is kept.
 | Pinned `spack-packages` commit | seanerstack | Implemented and unit-tested |
 | Fixture version 2, configuration, targets | seanertest | Implemented and unit-tested |
 | Build phase in the Rocky Linux 10 build container | seanertest | Implemented; run with Spack 1.2.2 without the compiler bootstrap |
-| HTTP cache server | seanertest | Implemented and unit-tested; blocked by a host firewall that drops inbound traffic |
+| HTTP cache server | seanertest | Implemented; verified from a container through a ufw rule for its fixed port |
 | Kubernetes backend, installer pods, node pods, container services | seanertest | Implemented; not yet run against a cluster |
 | Flux, `environment` and `container` drivers | seanertest | Implemented; not yet run against a cluster |
 | OCI build cache | seanertest | Implemented; not yet tested |
@@ -474,7 +474,7 @@ The build script and the install script were run in Docker containers of the app
 | Compiler bootstrap | Skipped in the test run, because building `gcc@15` takes more than an hour on the test machine. | Not yet verified |
 | Install script | Installs the environment from the lock file with `--use-buildcache only`. All packages come from the cache with the same hashes and the same store path, and only runtime dependencies are installed. The activated view provides `m4`. | Verified |
 | Install script without `spack-packages` | Fails with `Unknown namespace: builtin`. | Verified |
-| HTTP cache server reached from a container | Fails on a host where ufw drops inbound traffic, because the container cannot reach the host's address on the Docker network. | Open |
+| HTTP cache server reached from a container | Fails on a host where ufw drops inbound traffic. With a fixed `cache.port` of 18080 and a ufw rule that allows it from `192.168.49.0/24`, a container on a network with minikube's subnet installs the environment over HTTP. | Verified |
 
 - **Host firewall:** On a host with a firewall such as ufw that drops inbound traffic, the HTTP
   cache needs a rule that allows the cluster's network to reach the host, for example
