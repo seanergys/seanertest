@@ -23,6 +23,10 @@
 #   MINIKUBE_SUBNET      Network of minikube's Docker driver (default: 192.168.49.0/24)
 set -euo pipefail
 
+# The tools go to /usr/local/bin, which sudo's secure_path on Rocky Linux
+# leaves out.
+export PATH=/usr/local/bin:$PATH
+
 minikube_version=${MINIKUBE_VERSION:-v1.39.0}
 kubectl_version=${KUBECTL_VERSION:-v1.37.0}
 uv_version=${UV_VERSION:-0.13.6}
