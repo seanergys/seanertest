@@ -18,7 +18,7 @@ import pytest
 
 from seanerstack.isolation import BUILTIN_REPO_COMMIT
 
-from seanertest.build.phase import destination, environment_key
+from seanertest.build.phase import _container_environment, destination, environment_key, seanerstack_requirement
 from seanertest.build.scripts import STORE, BuildSettings, InstallSettings, build_script, install_script
 from seanertest.build.server import CacheServer, CacheServerError
 from seanertest.config import load_config
@@ -210,3 +210,19 @@ def test_compiler_only_build_bootstraps_and_pushes_without_environments():
 def test_compiler_only_command_does_not_import_seanerops():
     code = "import sys, seanertest.build.__main__; sys.exit('seanerops' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", code]).returncode == 0
+
+
+def test_plain_seanerstack_means_the_version_installed_next_to_seanertest():
+    import importlib.metadata
+
+    installed = importlib.metadata.version("seanerstack")
+    assert seanerstack_requirement("seanerstack") == f"seanerstack=={installed}"
+    assert seanerstack_requirement("seanerstack @ git+https://example.org/s.git") == "seanerstack @ git+https://example.org/s.git"
+
+
+def test_pip_index_settings_reach_the_build_container(monkeypatch):
+    monkeypatch.setenv("PIP_EXTRA_INDEX_URL", "https://user:token@example.org/simple")
+    monkeypatch.delenv("PIP_INDEX_URL", raising=False)
+    monkeypatch.delenv("SEANERTEST_GIT_TOKEN", raising=False)
+    environment = _container_environment("seanerstack==0.1.4.dev57", "http", None)
+    assert environment == {"PIP_EXTRA_INDEX_URL": "https://user:token@example.org/simple"}

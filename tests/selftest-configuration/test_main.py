@@ -21,6 +21,7 @@ def test_repository_config_names_the_approved_image_and_target():
     assert config.spack_version.startswith("v1.")
     assert "gcc" in config.build_packages
     assert "gcc" not in config.install_packages
+    assert config.seanerstack_pip == "seanerstack"
     assert config.upstream_caches == ("oci://registry.seanergys.fz-juelich.de/software/seanerstack/buildcache",)
 
 

@@ -12,7 +12,10 @@ sources:
   spack_packages:
     git: https://github.com/spack/spack-packages.git
   seanerstack:
-    pip: seanerstack @ git+https://gitlab.seanergys.fz-juelich.de/software/seanerstack.git@main
+    # Plain `seanerstack` installs the version installed next to seanertest, so
+    # that the build container pins the same spack-packages commit. pip finds
+    # it through PIP_INDEX_URL or PIP_EXTRA_INDEX_URL, which are passed in.
+    pip: seanerstack
 
 compiler: gcc@15
 

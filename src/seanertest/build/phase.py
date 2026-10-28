@@ -12,6 +12,7 @@ binaries to the target's build cache. Tests never build.
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import os
 import re
 import sys
@@ -40,6 +41,21 @@ if TYPE_CHECKING:
 # installed from, for example CI_JOB_TOKEN in GitLab CI.
 GIT_TOKEN = "SEANERTEST_GIT_TOKEN"
 GIT_USERNAME = "SEANERTEST_GIT_USERNAME"
+
+# pip's index settings, passed into the build container, so that it installs
+# seanerstack from the same package index as the host.
+PIP_INDEX_VARIABLES = ("PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL")
+
+
+def seanerstack_requirement(pip: str) -> str:
+    """The pip requirement for seanerstack in the build container.
+
+    A plain ``seanerstack`` means the version installed next to seanertest.
+    Both then pin the same spack-packages commit, which the pods clone.
+    """
+    if pip.strip() == "seanerstack":
+        return f"seanerstack=={importlib.metadata.version('seanerstack')}"
+    return pip
 
 
 class BuildError(RuntimeError):
@@ -223,7 +239,9 @@ def _run_build(
         settings = BuildSettings(
             spack_git=config.spack_git,
             spack_version=config.spack_version,
-            seanerstack_pip="/src/seanerstack" if seanerstack_src is not None else config.seanerstack_pip,
+            seanerstack_pip=(
+                "/src/seanerstack" if seanerstack_src is not None else seanerstack_requirement(config.seanerstack_pip)
+            ),
             spack_packages_commit=spack_packages_commit,
             compiler=config.compiler,
             target=architecture.target,
@@ -249,7 +267,7 @@ def _run_build(
 
 
 def _container_environment(seanerstack_pip: str, cache_type: str, oci_url: str | None) -> dict[str, str]:
-    environment: dict[str, str] = {}
+    environment: dict[str, str] = {name: os.environ[name] for name in PIP_INDEX_VARIABLES if os.environ.get(name)}
     token = os.environ.get(GIT_TOKEN)
     match = re.search(r"git\+(https://[^/]+/)", seanerstack_pip)
     if token and match:

@@ -16,13 +16,12 @@ dependencies = [
   "kubernetes>=31",
   "PyYAML>=6.0",
   "pytest>=8.0",
-  "seanerops",
-  "seanerstack",
+  # The .dev0 bounds let uv choose development builds: the newest build of
+  # main, or a newer release. Where they come from is configured in uv, not
+  # here.
+  "seanerops>=0.2.0.dev0",
+  "seanerstack>=0.1.3.dev0",
 ]
-
-[tool.uv.sources]
-seanerops = { git = "https://gitlab.seanergys.fz-juelich.de/software/seanerops.git", branch = "main" }
-seanerstack = { git = "https://gitlab.seanergys.fz-juelich.de/software/seanerstack.git", branch = "main" }
 
 [dependency-groups]
 docs = [
@@ -35,9 +34,6 @@ seanertest = "seanertest.plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seanertest"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

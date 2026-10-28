@@ -67,9 +67,39 @@ runs install binaries from the cache.
 | `--cache-dir` | `SEANERTEST_CACHE_DIR` | Directory that keeps the build cache and downloaded sources. |
 | `--seanertest-config` | | The configuration file; by default `config.yml`, found upward from the tests. |
 
-Seanerstack is installed in the build container from the SEANERGYS GitLab. If that needs
-credentials, set `SEANERTEST_GIT_TOKEN`, and optionally `SEANERTEST_GIT_USERNAME`. To install it from
-a local checkout instead, set `SEANERTEST_SEANERSTACK_SRC` to the checkout.
+## Package index
+
+seanertest depends on seanerops and seanerstack, which are published to the package index of the
+SEANERGYS GitLab group. Every push to their `main` branch publishes a development build, such as
+`0.2.1.dev57`, and every tag publishes a release. seanertest asks for development builds, so it
+always gets the newest build of `main`, or a newer release.
+
+The index is configured in uv, not in this repository, so that moving to another index, such as
+PyPI, changes no file here. On a developer machine, add it to `~/.config/uv/uv.toml`:
+
+```toml
+[[index]]
+name = "seanergys"
+url = "https://gitlab.seanergys.fz-juelich.de/api/v4/groups/software/-/packages/pypi/simple"
+```
+
+Provide the credentials in `UV_INDEX_SEANERGYS_USERNAME` and `UV_INDEX_SEANERGYS_PASSWORD`, for
+example a personal access token with the `read_api` scope.
+
+The build container installs the same seanerstack version as the host from that index, through
+pip. Set `PIP_EXTRA_INDEX_URL` to the index URL with the credentials in it, or set
+`SEANERTEST_SEANERSTACK_SRC` to a seanerstack checkout to install that instead.
+
+| CI/CD variable | Value |
+| --- | --- |
+| `UV_INDEX` | `seanergys=https://gitlab.seanergys.fz-juelich.de/api/v4/groups/software/-/packages/pypi/simple` |
+| `UV_INDEX_SEANERGYS_USERNAME` | `gitlab-ci-token` |
+| `UV_INDEX_SEANERGYS_PASSWORD` | `$CI_JOB_TOKEN` |
+| `PIP_EXTRA_INDEX_URL` | `https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.seanergys.fz-juelich.de/api/v4/groups/software/-/packages/pypi/simple` |
+
+Set these variables for the `software` group in GitLab, with variable expansion enabled, so that
+CI picks up the index without any change to this repository. The job token of seanertest's
+pipelines needs access to the seanerops and seanerstack projects.
 
 Registry credentials come from `docker login registry.seanergys.fz-juelich.de`, or from
 `SEANERTEST_OCI_USERNAME` and
