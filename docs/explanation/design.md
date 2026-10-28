@@ -279,11 +279,51 @@ serves every target of that architecture.
 | Recipes | Only recipes from the builtin `spack-packages` repository are used for now, including Flux. Seanerstack's own recipes are not used yet. | Decided |
 | Compiler | The build container uses seanerstack's compiler bootstrap. The bootstrapped compiler is built with the image's system compiler, and its runtime reaches the pods through the build cache. | Decided |
 | Pinning | The Spack version and the `spack-packages` commit are pinned and identical in the build container and in the pods. | Decided |
+| `spack-packages` commit | Seanerstack owns the pin. Seanertest takes the commit from seanerstack for the pods, so there is only one place to change it. | Decided |
+| Spack version | Pinned in the seanertest configuration. | Decided |
+| Sources | Spack and `spack-packages` are fetched from GitHub. Every pod has internet access for now. The locations are parameters in the seanertest configuration, so a mirror on the local network can replace GitHub later. | Decided |
+| System tools | The Rocky Linux 10 image lacks tools that Spack needs. They are installed with `dnf` when a container that runs Spack starts. | Decided |
 
 - **Why pinning matters:** A binary in the build cache is used only when its hash matches exactly.
   The hash depends on the recipes, so a pod that uses a newer `spack-packages` commit than the build
   container would find no matching binaries.
 - **No system compiler in pods:** Pods install ready-built binaries only, so they need no compiler.
+  Only the build container installs the system compiler, which the compiler bootstrap needs.
+
+### Seanertest configuration
+
+Settings that apply to every target are kept in one seanertest configuration file, `config.yml`.
+
+```yaml
+version: 1
+
+sources:
+  spack:
+    git: https://github.com/spack/spack.git
+    version: v1.2.2
+  spack_packages:
+    git: https://github.com/spack/spack-packages.git
+
+architectures:
+  x86_64:
+    image: rockylinux/rockylinux:10
+    target: x86_64_v3
+
+system_packages:
+  build: [python3, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file, gcc, gcc-c++, make]
+  install: [python3, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file]
+```
+
+| Setting | Meaning | Status |
+| --- | --- | --- |
+| `sources.spack` | Where Spack is fetched from, and the pinned Spack version. | Decided |
+| `sources.spack_packages.git` | Where `spack-packages` is fetched from. The commit is not set here, because seanerstack owns it. | Decided |
+| `architectures` | The approved image and the Spack target for each architecture. | Decided |
+| `system_packages.build` | Packages installed in the build container. | Proposed |
+| `system_packages.install` | Packages installed where pods run Spack to install from the build cache. | Proposed |
+
+The exact package lists are a starting point and will be adjusted once Spack runs in the Rocky
+Linux 10 image.
 
 ### Build phase
 
@@ -382,9 +422,8 @@ gigabytes, so the user decides where it is kept.
 | Question | Notes | Status |
 | --- | --- | --- |
 | How do the lock files reach the pods? | In `http` mode they can be served together with the cache. In `oci` mode they need another channel. | Open |
-| Where do the build container and the pods fetch the pinned Spack and `spack-packages` from? | Fetching from GitHub needs network access from every pod. Serving them together with the cache avoids that in `http` mode. | Open |
-| Does the Rocky Linux 10 image contain the tools Spack needs? | For example Python, `git`, `tar` and the compression tools. Missing tools would have to be installed when the container starts. | Open |
-| Does seanerstack support pinning the `spack-packages` commit? | It currently configures the builtin repository from `spack-packages` without a pinned commit. | Open |
+| How does the build container use a `spack-packages` location other than GitHub? | Seanerstack currently fixes the GitHub URL. It needs an override before `sources.spack_packages.git` can point the build container at a local mirror. | Open |
+| Does Spack need the package recipes for binary installations? | If not, the per-host installer could skip cloning `spack-packages`. | Open |
 | Which credentials does the build phase use to push to the OCI cache? | Writing requires a token with write access, which only CI should hold. | Open |
 | Which Spack target is used for `aarch64`? | Decided together with the `aarch64` builder host. | Deferred |
 | Should `shared` mode check capacity against the hosts' allocatable resources? | Without a check, pods that do not fit stay `Pending` until the readiness timeout. | Deferred |
