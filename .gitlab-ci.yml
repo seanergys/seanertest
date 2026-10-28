@@ -8,6 +8,8 @@ stages:
 
 test_file_names:
   stage: check
+  tags:
+    - docker
   image: alpine:latest
   script:
     - |
@@ -23,6 +25,8 @@ test_file_names:
 
 lint:reuse:
   stage: check
+  tags:
+    - docker
   image:
     name: fsfe/reuse:latest
     entrypoint: [""]
