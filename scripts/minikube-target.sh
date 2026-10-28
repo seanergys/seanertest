@@ -5,12 +5,14 @@
 
 # Write a seanertest target for a running minikube profile with the Docker
 # driver. The cache address is the host's side of the profile's Docker network.
+# PORT is optional; a fixed port lets a host firewall allow exactly that port.
 #
-# Usage: scripts/minikube-target.sh PROFILE KUBECONFIG > target.yml
+# Usage: scripts/minikube-target.sh PROFILE KUBECONFIG [PORT] > target.yml
 set -eu
 
-profile=${1:?usage: $0 PROFILE KUBECONFIG}
-kubeconfig=${2:?usage: $0 PROFILE KUBECONFIG}
+profile=${1:?usage: $0 PROFILE KUBECONFIG [PORT]}
+kubeconfig=${2:?usage: $0 PROFILE KUBECONFIG [PORT]}
+port=${3:-}
 address=$(docker network inspect "$profile" --format '{{(index .IPAM.Config 0).Gateway}}')
 
 cat <<TARGET
@@ -26,3 +28,6 @@ cache:
   type: http
   address: $address
 TARGET
+if [ -n "$port" ]; then
+    echo "  port: $port"
+fi

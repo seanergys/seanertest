@@ -62,11 +62,14 @@ integration:minikube:
     # Kept on the runner, so that later pipelines install binaries instead of
     # building them.
     SEANERTEST_CACHE_DIR: ${HOME}/.cache/seanertest-ci
+    # Fixed, so that a firewall on the runner can allow exactly this port from
+    # the minikube network.
+    SEANERTEST_CACHE_PORT: "18080"
   before_script:
     - mkdir -p .ci
     - minikube delete --profile "$MINIKUBE_PROFILE" || true
     - minikube start --profile "$MINIKUBE_PROFILE" --driver docker --cpus 4 --memory 8g --wait all
-    - scripts/minikube-target.sh "$MINIKUBE_PROFILE" "$KUBECONFIG" > .ci/target.yml
+    - scripts/minikube-target.sh "$MINIKUBE_PROFILE" "$KUBECONFIG" "$SEANERTEST_CACHE_PORT" > .ci/target.yml
   script:
     - >-
       uv run pytest -v -s --target .ci/target.yml --junitxml junit-integration.xml

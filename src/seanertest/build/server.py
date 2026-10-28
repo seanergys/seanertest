@@ -52,9 +52,12 @@ class _Handler(SimpleHTTPRequestHandler):
 
 
 class CacheServer:
-    def __init__(self, directory: Path, address: str):
+    def __init__(self, directory: Path, address: str, port: int | None = None):
         self.directory = directory
         self.address = address
+        # A fixed port lets a host firewall allow exactly this port; port 0
+        # asks the operating system for a free one.
+        self.port = port or 0
         self.token = secrets.token_urlsafe(24)
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -69,12 +72,17 @@ class CacheServer:
         handler = type("CacheHandler", (_Handler,), {"token": self.token})
         factory = functools.partial(handler, directory=str(self.directory))
         try:
-            self._server = ThreadingHTTPServer((self.address, 0), factory)
+            self._server = ThreadingHTTPServer((self.address, self.port), factory)
         except OSError as error:
             if error.errno == errno.EADDRNOTAVAIL:
                 raise CacheServerError(
                     f"cache.address {self.address} is not an address of this host; for minikube's "
                     "Docker driver it is the gateway shown by `docker network inspect <profile>`"
+                ) from error
+            if error.errno == errno.EADDRINUSE:
+                raise CacheServerError(
+                    f"cache.port {self.port} is already in use on {self.address}; another seanertest "
+                    "session may be running"
                 ) from error
             raise
         self._thread = threading.Thread(target=self._server.serve_forever, name="seanertest-cache", daemon=True)

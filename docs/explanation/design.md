@@ -101,6 +101,7 @@ cache:
 | `allocation` | Optional. Overrides the default allocation mode and node size, see [Allocation](#allocation). | Decided |
 | `cache.type` | `http` for single-node targets, `oci` for multi-node targets, see [Build caches](#build-caches). | Decided |
 | `cache.address` | For `http` only. The host's address on the cluster's network. | Decided |
+| `cache.port` | For `http` only, optional. A fixed port for the cache server, so that a host firewall can allow exactly this port. Without it, a free port is chosen for every session. | Decided |
 
 ## Node requests
 
@@ -477,5 +478,5 @@ The build script and the install script were run in Docker containers of the app
 
 - **Host firewall:** On a host with a firewall such as ufw that drops inbound traffic, the HTTP
   cache needs a rule that allows the cluster's network to reach the host, for example
-  `ufw allow in on <bridge interface> from <cluster subnet>`. A fixed port in the target would let
-  the rule name that port only. This is not yet implemented.
+  `ufw allow in from 192.168.49.0/24 to 192.168.49.1 port 18080 proto tcp` for minikube with a
+  fixed `cache.port` of 18080.

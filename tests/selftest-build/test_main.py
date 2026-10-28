@@ -101,6 +101,22 @@ def test_cache_server_serves_files_only_below_its_token(tmp_path):
         server.stop()
 
 
+def test_cache_server_binds_a_fixed_port(tmp_path):
+    (tmp_path / "index.json").write_text("{}")
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    server = CacheServer(tmp_path, "127.0.0.1", port).start()
+    try:
+        assert server.url.startswith(f"http://127.0.0.1:{port}/")
+        with urlopen(server.url + "index.json", timeout=5) as response:
+            assert response.read() == b"{}"
+        with pytest.raises(CacheServerError, match="already in use"):
+            CacheServer(tmp_path, "127.0.0.1", port).start()
+    finally:
+        server.stop()
+
+
 def test_cache_server_rejects_an_address_of_another_host(tmp_path):
     with socket.socket() as probe:
         try:

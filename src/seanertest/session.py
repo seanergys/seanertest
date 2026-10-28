@@ -138,7 +138,9 @@ class Session:
             return self.target.cache.url
         if self._server is None:
             (self.cache_dir / "buildcache").mkdir(parents=True, exist_ok=True)
-            self._server = CacheServer(self.cache_dir / "buildcache", self.target.cache.address).start()
+            self._server = CacheServer(
+                self.cache_dir / "buildcache", self.target.cache.address, self.target.cache.port
+            ).start()
         return self._server.url
 
     # Testbeds.

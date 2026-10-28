@@ -48,6 +48,15 @@ SEANERGYS GitLab. For a local minikube cluster with the Docker driver:
     uv run pytest -v -s --target local --cache-dir ~/.cache/seanertest
     ```
 
+Pods reach the build cache over HTTP on the host's address in minikube's network. If the host's
+firewall drops inbound traffic, as ufw does by default, give the target a fixed port and allow it
+from the minikube network:
+
+```bash
+scripts/minikube-target.sh minikube ~/.kube/config 18080 > targets/local.yml
+sudo ufw allow in from 192.168.49.0/24 to 192.168.49.1 port 18080 proto tcp
+```
+
 Without `--cache-dir`, seanertest uses a temporary directory and builds everything again in the
 next run. The first run builds the compiler and every environment, which takes a long time; later
 runs install binaries from the cache.
