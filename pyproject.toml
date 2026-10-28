@@ -17,6 +17,12 @@ dependencies = [
   "pytest>=8.0",
 ]
 
+[dependency-groups]
+docs = [
+  "properdocs>=1.6.7",
+  "mkdocs-materialx>=10.2.0",
+]
+
 [project.entry-points.pytest11]
 seanertest = "seanertest.pytest_plugin"
 

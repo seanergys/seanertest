@@ -227,3 +227,12 @@ pytest:tests-example-complex-service-test-test_main-Bsys
 Each invokes pytest with the corresponding `--testbed` argument and gets its
 own DinD daemon/network. Generated commands use `pytest -v -s`, so service and
 test output remains visible in the GitLab job log.
+
+## Documentation
+
+The documentation in `docs/` describes the intended design of seanertest, seanerops and
+seanerstack, most of which is not yet implemented. Build and serve it locally with:
+
+```bash
+uv run --group docs properdocs serve
+```
