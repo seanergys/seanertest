@@ -20,8 +20,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from seanertest.build.scripts import OCI_PASSWORD, OCI_USERNAME, BuildSettings, build_script
+from seanertest.build.scripts import (
+    OCI_PASSWORD,
+    OCI_USERNAME,
+    UPSTREAM_PASSWORD,
+    UPSTREAM_USERNAME,
+    BuildSettings,
+    build_script,
+)
 from seanertest.config import Architecture, SeanertestConfig
+from seanertest.credentials import oci_credentials
 from seanertest.fixture import SpackEnvironment
 
 # Environment variables that hold a token for the Git server seanerstack is
@@ -71,6 +79,18 @@ def cache_url(cache_type: str, oci_url: str | None) -> str:
     return "file:///cache/buildcache"
 
 
+def destination(cache_type: str, oci_url: str | None) -> str:
+    """Names the cache that binaries are pushed to.
+
+    Lock files are kept per destination: a lock file proves that its binaries
+    are in that cache, not in another one.
+    """
+    if cache_type == "oci":
+        assert oci_url is not None
+        return "oci-" + hashlib.sha256(oci_url.encode()).hexdigest()[:12]
+    return "local"
+
+
 def run_build_phase(
     environments: Iterable[SpackEnvironment],
     *,
@@ -80,6 +100,8 @@ def run_build_phase(
     cache_dir: Path,
     cache_type: str,
     oci_url: str | None = None,
+    upstream: tuple[str, ...] = (),
+    seanerstack_src: Path | None = None,
     docker_client=None,
     log=print,
 ) -> dict[SpackEnvironment, BuiltEnvironment]:
@@ -90,9 +112,10 @@ def run_build_phase(
     """
     built: dict[SpackEnvironment, BuiltEnvironment] = {}
     pending: dict[str, SpackEnvironment] = {}
+    target = destination(cache_type, oci_url)
     for environment in environments:
         key = environment_key(environment, config, architecture, spack_packages_commit)
-        lock = cache_dir / "environments" / key / "spack.lock"
+        lock = cache_dir / "environments" / target / key / "spack.lock"
         built[environment] = BuiltEnvironment(key=key, environment=environment, lock=lock)
         if not lock.is_file():
             pending[key] = environment
@@ -102,6 +125,18 @@ def run_build_phase(
         return built
 
     log(f"seanertest: building {len(pending)} environment(s) for {architecture.name} in {architecture.image}")
+    environment_variables = _container_environment(config.seanerstack_pip, cache_type, oci_url)
+    upstream_urls = []
+    for url in upstream:
+        if url == oci_url:
+            continue
+        credentials = oci_credentials(url, UPSTREAM_USERNAME, UPSTREAM_PASSWORD) if url.startswith("oci://") else None
+        if url.startswith("oci://") and credentials is None:
+            log(f"seanertest: no credentials for upstream cache {url}; run docker login to use it")
+            continue
+        if credentials is not None:
+            environment_variables[UPSTREAM_USERNAME], environment_variables[UPSTREAM_PASSWORD] = credentials
+        upstream_urls.append(url)
     with tempfile.TemporaryDirectory(prefix="seanertest-build-") as work:
         work_dir = Path(work)
         for key, environment in pending.items():
@@ -111,7 +146,8 @@ def run_build_phase(
         settings = BuildSettings(
             spack_git=config.spack_git,
             spack_version=config.spack_version,
-            seanerstack_pip=config.seanerstack_pip,
+            seanerstack_pip="/src/seanerstack" if seanerstack_src is not None else config.seanerstack_pip,
+            spack_packages_commit=spack_packages_commit,
             compiler=config.compiler,
             target=architecture.target,
             packages=config.build_packages,
@@ -120,6 +156,8 @@ def run_build_phase(
             oci=cache_type == "oci",
             host_uid=os.getuid(),
             host_gid=os.getgid(),
+            locks=f"/cache/environments/{target}",
+            upstream=tuple(upstream_urls),
         )
         (work_dir / "build.sh").write_text(build_script(settings), encoding="utf-8")
         _run_container(
@@ -127,7 +165,8 @@ def run_build_phase(
             image=architecture.image,
             work_dir=work_dir,
             cache_dir=cache_dir,
-            environment=_container_environment(config.seanerstack_pip, cache_type),
+            environment=environment_variables,
+            seanerstack_src=seanerstack_src,
             log=log,
         )
 
@@ -137,7 +176,7 @@ def run_build_phase(
     return built
 
 
-def _container_environment(seanerstack_pip: str, cache_type: str) -> dict[str, str]:
+def _container_environment(seanerstack_pip: str, cache_type: str, oci_url: str | None) -> dict[str, str]:
     environment: dict[str, str] = {}
     token = os.environ.get(GIT_TOKEN)
     match = re.search(r"git\+(https://[^/]+/)", seanerstack_pip)
@@ -155,25 +194,31 @@ def _container_environment(seanerstack_pip: str, cache_type: str) -> dict[str, s
             }
         )
     if cache_type == "oci":
-        for name in (OCI_USERNAME, OCI_PASSWORD):
-            if not os.environ.get(name):
-                raise BuildError(f"pushing to the OCI build cache needs {name}")
-            environment[name] = os.environ[name]
+        assert oci_url is not None
+        credentials = oci_credentials(oci_url, OCI_USERNAME, OCI_PASSWORD)
+        if credentials is None:
+            raise BuildError(
+                f"no credentials for {oci_url}; run docker login or set {OCI_USERNAME} and {OCI_PASSWORD}"
+            )
+        environment[OCI_USERNAME], environment[OCI_PASSWORD] = credentials
     return environment
 
 
-def _run_container(docker_client, *, image, work_dir, cache_dir, environment, log) -> None:
+def _run_container(docker_client, *, image, work_dir, cache_dir, environment, seanerstack_src, log) -> None:
     import docker
 
     client = docker_client or docker.from_env()
     cache_dir.mkdir(parents=True, exist_ok=True)
+    volumes = {
+        str(work_dir): {"bind": "/work", "mode": "rw"},
+        str(cache_dir.resolve()): {"bind": "/cache", "mode": "rw"},
+    }
+    if seanerstack_src is not None:
+        volumes[str(Path(seanerstack_src).resolve())] = {"bind": "/src/seanerstack", "mode": "ro"}
     container = client.containers.run(
         image,
         command=["/bin/bash", "/work/build.sh"],
-        volumes={
-            str(work_dir): {"bind": "/work", "mode": "rw"},
-            str(cache_dir.resolve()): {"bind": "/cache", "mode": "rw"},
-        },
+        volumes=volumes,
         environment=environment,
         detach=True,
     )

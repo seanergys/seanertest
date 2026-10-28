@@ -31,6 +31,7 @@ from seanertest.build.phase import BuiltEnvironment, run_build_phase
 from seanertest.build.scripts import OCI_PASSWORD, OCI_USERNAME, InstallSettings, activation_script, install_script
 from seanertest.build.server import CacheServer
 from seanertest.config import SeanertestConfig
+from seanertest.credentials import oci_credentials
 from seanertest.drivers import get_driver
 from seanertest.drivers.base import DriverContext, ServiceDriver
 from seanertest.fixture import FixtureSpec, ServiceSpec, SpackEnvironment
@@ -41,6 +42,9 @@ from seanertest.kubernetes.node import PodNode
 from seanertest.service import ContainerService, Service, Services
 
 CACHE_DIR_VARIABLE = "SEANERTEST_CACHE_DIR"
+# A seanerstack checkout to install in the build container instead of the
+# pip requirement from config.yml.
+SEANERSTACK_SRC_VARIABLE = "SEANERTEST_SEANERSTACK_SRC"
 CLUSTER_ONLY = "cluster"
 
 
@@ -130,6 +134,8 @@ class Session:
             cache_dir=self.cache_dir,
             cache_type=self.target.cache.type,
             oci_url=self.target.cache.url,
+            upstream=self.config.upstream_caches,
+            seanerstack_src=Path(os.environ[SEANERSTACK_SRC_VARIABLE]) if os.environ.get(SEANERSTACK_SRC_VARIABLE) else None,
             log=self.log,
         )
 
@@ -253,7 +259,10 @@ class Session:
             )
         )
         if settings.oci:
-            cluster.create(manifests.oci_secret(namespace, os.environ[OCI_USERNAME], os.environ[OCI_PASSWORD]))
+            credentials = oci_credentials(self.target.cache.url, OCI_USERNAME, OCI_PASSWORD)
+            if credentials is None:
+                raise SessionError(f"no credentials for {self.target.cache.url}; run docker login")
+            cluster.create(manifests.oci_secret(namespace, *credentials))
 
         # One installer per host, so that pods sharing a host do not install
         # the same environment at the same time.

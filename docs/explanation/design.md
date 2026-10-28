@@ -362,6 +362,20 @@ The build phase runs before any testbed is requested and before any test starts.
 
 The filesystem cache is not used to fill the OCI cache.
 
+- **Upstream caches:** `config.yml` lists read-only caches, currently the seanerstack build cache in
+  the SEANERGYS registry. The build container installs binaries from them before it builds
+  anything, and pushes everything it installed to the target's cache.
+- **Filling the shared cache:** `scripts/build-buildcache.sh` runs the build phase on its own,
+  through `python -m seanertest.build`, and pushes to the seanerstack build cache. It builds exactly
+  what a test session builds, so the hashes match.
+- **Lock files per destination:** Lock files are kept for each destination cache. A lock file
+  proves that the environment's binaries are in that cache, so a build pushed to the registry does
+  not make a later session skip filling its local cache.
+- **Credentials:** Registry credentials come from `docker login` or from environment variables.
+  They are passed only to the build container and to a Secret of the test namespace.
+- **Same recipes:** The build container checks that its seanerstack pins the same
+  `spack-packages` commit as seanertest, because the pods clone that commit.
+
 The single-node cache is served over HTTP while the session runs.
 
 - **Server:** Seanertest serves the cache directory read-only from a thread inside the pytest

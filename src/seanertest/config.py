@@ -43,6 +43,7 @@ class SeanertestConfig:
     build_packages: tuple[str, ...]
     install_packages: tuple[str, ...]
     node_packages: tuple[str, ...]
+    upstream_caches: tuple[str, ...] = ()
 
     def architecture(self, name: str) -> Architecture:
         try:
@@ -71,7 +72,7 @@ def load_config(path: Path) -> SeanertestConfig:
     _mapping(data, where)
     if data.get("version") != 1:
         raise ConfigError(f"{where}: only config version 1 is supported")
-    _known(data, {"version", "sources", "compiler", "architectures", "system_packages"}, where)
+    _known(data, {"version", "sources", "compiler", "architectures", "system_packages", "upstream_caches"}, where)
 
     sources = data.get("sources")
     _mapping(sources, f"{where}: sources")
@@ -93,6 +94,10 @@ def load_config(path: Path) -> SeanertestConfig:
             name=name, image=_string(raw, "image", arch_where), target=_string(raw, "target", arch_where)
         )
 
+    upstream = data.get("upstream_caches", [])
+    if not isinstance(upstream, list) or not all(isinstance(url, str) and url.startswith("oci://") for url in upstream):
+        raise ConfigError(f"{where}: upstream_caches must be a list of oci:// URLs")
+
     packages = data.get("system_packages")
     _mapping(packages, f"{where}: system_packages")
     _known(packages, {"build", "install", "node"}, f"{where}: system_packages")
@@ -108,6 +113,7 @@ def load_config(path: Path) -> SeanertestConfig:
         build_packages=_packages(packages, "build", where),
         install_packages=_packages(packages, "install", where),
         node_packages=_packages(packages, "node", where),
+        upstream_caches=tuple(upstream),
     )
 
 

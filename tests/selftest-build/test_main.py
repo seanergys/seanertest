@@ -2,8 +2,13 @@
 #
 # SPDX-License-Identifier: MIT
 
+import base64
 import errno
+import json
+import shlex
 import socket
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from urllib.error import HTTPError
@@ -11,10 +16,13 @@ from urllib.request import urlopen
 
 import pytest
 
-from seanertest.build.phase import environment_key
+from seanerstack.isolation import BUILTIN_REPO_COMMIT
+
+from seanertest.build.phase import destination, environment_key
 from seanertest.build.scripts import STORE, BuildSettings, InstallSettings, build_script, install_script
 from seanertest.build.server import CacheServer, CacheServerError
 from seanertest.config import load_config
+from seanertest.credentials import from_docker, oci_credentials, registry_host
 from seanertest.fixture import SpackEnvironment
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +31,7 @@ BUILD = BuildSettings(
     spack_git="https://github.com/spack/spack.git",
     spack_version="v1.2.2",
     seanerstack_pip="seanerstack @ git+https://gitlab.example.org/seanerstack.git",
+    spack_packages_commit=BUILTIN_REPO_COMMIT,
     compiler="gcc@15",
     target="x86_64_v3",
     packages=("python3", "gcc"),
@@ -41,7 +50,10 @@ def test_build_script_bootstraps_the_compiler_builds_every_environment_and_pushe
     assert "toolchain bootstrap gcc@15" in script
     assert "packages:all:require:target=x86_64_v3" in script
     assert script.index("toolchain bootstrap") < script.index("environment aaaa") < script.index("environment bbbb")
-    assert "cp /work/environments/aaaa/spack.yaml /work/environments/aaaa/spack.lock /cache/environments/aaaa/" in script
+    assert (
+        "cp /work/environments/aaaa/spack.yaml /work/environments/aaaa/spack.lock /cache/environments/local/aaaa/"
+        in script
+    )
     assert "buildcache push --unsigned --update-index" in script
     assert "chown -R 1000:1000 /cache" in script
     assert "--oci-username-variable" not in script
@@ -50,7 +62,63 @@ def test_build_script_bootstraps_the_compiler_builds_every_environment_and_pushe
 def test_build_script_for_an_oci_cache_uses_credential_variables():
     script = build_script(replace(BUILD, oci=True, cache_url="oci://registry.example.org/cache"))
     assert "--oci-username-variable SEANERTEST_OCI_USERNAME --oci-password-variable SEANERTEST_OCI_PASSWORD" in script
-    assert "chown" not in script
+
+
+def test_build_script_reads_from_upstream_caches_before_the_compiler_bootstrap():
+    script = build_script(replace(BUILD, upstream=("oci://registry.example.org/seanerstack/buildcache",)))
+    upstream = (
+        "--oci-username-variable SEANERTEST_UPSTREAM_USERNAME --oci-password-variable SEANERTEST_UPSTREAM_PASSWORD "
+        "seanertest-upstream-0 oci://registry.example.org/seanerstack/buildcache"
+    )
+    assert upstream in script
+    assert script.index(upstream) < script.index("toolchain bootstrap")
+    # Binaries are pushed only to the session's own cache.
+    assert "push --unsigned --update-index --only package seanertest-cache" in script
+    assert "push --unsigned --update-index --only package seanertest-upstream" not in script
+
+
+@pytest.mark.parametrize(("commit", "returncode"), [(BUILTIN_REPO_COMMIT, 0), ("0" * 40, 1)])
+def test_build_script_checks_that_seanerstack_pins_the_same_commit(commit, returncode):
+    line = next(line for line in build_script(BUILD).splitlines() if "BUILTIN_REPO_COMMIT" in line)
+    argv = shlex.split(line)
+    argv[0] = sys.executable
+    argv[-1] = commit
+    result = subprocess.run(argv, capture_output=True, text=True)
+    assert result.returncode == returncode
+    if returncode:
+        assert "seanertest expects" in result.stderr
+
+
+def test_locks_are_kept_per_destination_cache():
+    assert destination("http", None) == "local"
+    first = destination("oci", "oci://registry.example.org/a")
+    assert first.startswith("oci-")
+    assert first != destination("oci", "oci://registry.example.org/b")
+
+
+def test_credentials_come_from_variables_before_docker_login(monkeypatch, tmp_path):
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path))
+    auth = base64.b64encode(b"jayesh:secret").decode()
+    (tmp_path / "config.json").write_text(json.dumps({"auths": {"registry.example.org": {"auth": auth}}}))
+    url = "oci://registry.example.org/group/cache"
+    assert registry_host(url) == "registry.example.org"
+    monkeypatch.delenv("A", raising=False)
+    monkeypatch.delenv("B", raising=False)
+    assert oci_credentials(url, "A", "B") == ("jayesh", "secret")
+    monkeypatch.setenv("A", "ci")
+    monkeypatch.setenv("B", "token")
+    assert oci_credentials(url, "A", "B") == ("ci", "token")
+    assert from_docker("other.example.org") is None
+
+
+def test_credentials_come_from_a_docker_credential_helper(monkeypatch, tmp_path):
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path))
+    (tmp_path / "config.json").write_text(json.dumps({"auths": {"registry.example.org": {}}, "credsStore": "fake"}))
+    helper = tmp_path / "docker-credential-fake"
+    helper.write_text('#!/bin/sh\nread host\necho "{\\"Username\\": \\"u-$host\\", \\"Secret\\": \\"s\\"}"\n')
+    helper.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    assert from_docker("registry.example.org") == ("u-registry.example.org", "s")
 
 
 def test_install_script_installs_binaries_only_into_the_build_store():

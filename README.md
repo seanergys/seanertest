@@ -68,8 +68,34 @@ runs install binaries from the cache.
 | `--seanertest-config` | | The configuration file; by default `config.yml`, found upward from the tests. |
 
 Seanerstack is installed in the build container from the SEANERGYS GitLab. If that needs
-credentials, set `SEANERTEST_GIT_TOKEN`, and optionally `SEANERTEST_GIT_USERNAME`. For a target with
-an OCI build cache, set `SEANERTEST_OCI_USERNAME` and `SEANERTEST_OCI_PASSWORD`.
+credentials, set `SEANERTEST_GIT_TOKEN`, and optionally `SEANERTEST_GIT_USERNAME`. To install it from
+a local checkout instead, set `SEANERTEST_SEANERSTACK_SRC` to the checkout.
+
+Registry credentials come from `docker login`, or from `SEANERTEST_OCI_USERNAME` and
+`SEANERTEST_OCI_PASSWORD` for a target's OCI cache and `SEANERTEST_UPSTREAM_USERNAME` and
+`SEANERTEST_UPSTREAM_PASSWORD` for the upstream caches in `config.yml`.
+
+## Filling the shared build cache
+
+The first build of the compiler and of Flux takes hours. It can be done once and shared through
+the seanerstack build cache in the SEANERGYS registry, which `config.yml` lists as an upstream
+cache. Later builds install from there instead of compiling.
+
+1. Log in with an account that may write to the registry:
+
+    ```bash
+    docker login registry.seanergys.fz-juelich.de
+    ```
+
+2. Build every environment of the tests and push the binaries:
+
+    ```bash
+    scripts/build-buildcache.sh
+    ```
+
+The script expects checkouts of seanerops and seanerstack next to this one; `SEANEROPS_SRC` and
+`SEANERSTACK_SRC` select others. It runs `python -m seanertest.build`, which builds exactly what a
+test session builds, so test sessions find matching binaries.
 
 ## Writing a test
 

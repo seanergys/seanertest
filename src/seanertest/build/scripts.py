@@ -29,10 +29,15 @@ STORE = f"{STATE_DIR}/spack/store"
 
 # Name of the build cache in Spack's mirror configuration.
 MIRROR = "seanertest-cache"
+UPSTREAM_MIRROR = "seanertest-upstream"
 
 # Credentials for an OCI build cache, read by Spack from these variables.
 OCI_USERNAME = "SEANERTEST_OCI_USERNAME"
 OCI_PASSWORD = "SEANERTEST_OCI_PASSWORD"
+
+# Credentials for the read-only upstream caches.
+UPSTREAM_USERNAME = "SEANERTEST_UPSTREAM_USERNAME"
+UPSTREAM_PASSWORD = "SEANERTEST_UPSTREAM_PASSWORD"
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,7 @@ class BuildSettings:
     spack_git: str
     spack_version: str
     seanerstack_pip: str
+    spack_packages_commit: str
     compiler: str
     target: str
     packages: tuple[str, ...]
@@ -48,6 +54,8 @@ class BuildSettings:
     oci: bool
     host_uid: int
     host_gid: int
+    locks: str = "/cache/environments/local"
+    upstream: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,13 +82,19 @@ def activation_script(environment: str) -> str:
     return f"{environment_dir(environment)}/activate.sh"
 
 
-def _mirror_add(url: str, oci: bool) -> str:
+def _mirror_add(
+    url: str,
+    oci: bool,
+    name: str = MIRROR,
+    username: str = OCI_USERNAME,
+    password: str = OCI_PASSWORD,
+) -> str:
     credentials = ""
     if oci:
-        credentials = f" --oci-username-variable {OCI_USERNAME} --oci-password-variable {OCI_PASSWORD}"
+        credentials = f" --oci-username-variable {username} --oci-password-variable {password}"
     return (
-        f"spack mirror remove --scope user {MIRROR} >/dev/null 2>&1 || true\n"
-        f"spack mirror add --scope user --type binary --unsigned{credentials} {MIRROR} {shlex.quote(url)}\n"
+        f"spack mirror remove --scope user {name} >/dev/null 2>&1 || true\n"
+        f"spack mirror add --scope user --type binary --unsigned{credentials} {name} {shlex.quote(url)}\n"
     )
 
 
@@ -120,14 +134,30 @@ def build_script(settings: BuildSettings) -> str:
         f"/opt/seanerstack/bin/pip install --quiet {shlex.quote(settings.seanerstack_pip)}",
         "export PATH=/opt/seanerstack/bin:$PATH",
         "",
+        "# The pods clone the spack-packages commit that seanertest's seanerstack pins.",
+        "# Binaries match only if this seanerstack pins the same one.",
+        "/opt/seanerstack/bin/python -c 'import sys; from seanerstack.isolation import BUILTIN_REPO_COMMIT as c; "
+        f"sys.exit(0 if c == sys.argv[1] else f\"seanerstack pins spack-packages {{c}}, seanertest expects {{sys.argv[1]}}\")' "
+        f"{settings.spack_packages_commit}",
+        "",
         "# Downloaded sources survive in the host's cache directory.",
         f"mkdir -p {STATE_DIR}/spack /cache/source-cache /cache/environments",
         f"ln -sfn /cache/source-cache {STATE_DIR}/spack/source-cache",
         f'eval "$({seanerstack} activate)"',
         _mirror_add(settings.cache_url, settings.oci).rstrip(),
+        *(
+            _mirror_add(
+                url,
+                url.startswith("oci://"),
+                name=f"{UPSTREAM_MIRROR}-{index}",
+                username=UPSTREAM_USERNAME,
+                password=UPSTREAM_PASSWORD,
+            ).rstrip()
+            for index, url in enumerate(settings.upstream)
+        ),
         f"spack config add {shlex.quote(f'packages:all:require:target={settings.target}')}",
         "",
-        "# The bootstrapped compiler comes from the build cache when it is there.",
+        "# The bootstrapped compiler comes from a build cache when one has it.",
         f"{seanerstack} toolchain bootstrap {shlex.quote(settings.compiler)}",
         "",
     ]
@@ -137,17 +167,16 @@ def build_script(settings: BuildSettings) -> str:
             f"echo '==> environment {environment}'",
             f"spack -e {work} concretize --force",
             f'spack -e {work} install --jobs "$(nproc)"',
-            f"mkdir -p /cache/environments/{environment}",
-            f"cp {work}/spack.yaml {work}/spack.lock /cache/environments/{environment}/",
+            f"mkdir -p {settings.locks}/{environment}",
+            f"cp {work}/spack.yaml {work}/spack.lock {settings.locks}/{environment}/",
             "",
         ]
     lines += [
-        "# Push everything, the compiler included, so that the next build and the",
-        "# pods install binaries instead of building.",
+        "# Push everything, the compiler and what came from upstream caches included,",
+        "# so that the next build and the pods install binaries instead of building.",
         f"spack buildcache push --unsigned --update-index --only package {MIRROR} $(spack find --format '/{{hash}}')",
+        f"chown -R {settings.host_uid}:{settings.host_gid} /cache",
     ]
-    if not settings.oci:
-        lines.append(f"chown -R {settings.host_uid}:{settings.host_gid} /cache")
     return "\n".join(line for line in lines if line is not None) + "\n"
 
 

@@ -16,6 +16,12 @@ sources:
 
 compiler: gcc@15
 
+# Read-only caches that the build container installs binaries from before it
+# builds anything. Credentials come from `docker login` for the registry, or
+# from SEANERTEST_UPSTREAM_USERNAME and SEANERTEST_UPSTREAM_PASSWORD.
+upstream_caches:
+  - oci://registry.seanergys.fz-juelich.de/software/seanerstack/buildcache
+
 architectures:
   x86_64:
     image: docker.io/rockylinux/rockylinux:10
