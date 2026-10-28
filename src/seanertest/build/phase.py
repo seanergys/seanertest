@@ -18,7 +18,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from seanertest.build.scripts import (
     OCI_PASSWORD,
@@ -30,7 +30,11 @@ from seanertest.build.scripts import (
 )
 from seanertest.config import Architecture, SeanertestConfig
 from seanertest.credentials import oci_credentials
-from seanertest.fixture import SpackEnvironment
+
+if TYPE_CHECKING:
+    # Only for annotations: the fixture parser imports seanerops, which a
+    # compiler-only build does not need.
+    from seanertest.fixture import SpackEnvironment
 
 # Environment variables that hold a token for the Git server seanerstack is
 # installed from, for example CI_JOB_TOKEN in GitLab CI.
@@ -125,6 +129,77 @@ def run_build_phase(
         return built
 
     log(f"seanertest: building {len(pending)} environment(s) for {architecture.name} in {architecture.image}")
+    _run_build(
+        {key: environment.content for key, environment in pending.items()},
+        config=config,
+        architecture=architecture,
+        spack_packages_commit=spack_packages_commit,
+        cache_dir=cache_dir,
+        cache_type=cache_type,
+        oci_url=oci_url,
+        upstream=upstream,
+        seanerstack_src=seanerstack_src,
+        docker_client=docker_client,
+        log=log,
+    )
+
+    missing = [key for key in pending if not built[pending[key]].lock.is_file()]
+    if missing:
+        raise BuildError(f"the build container produced no lock file for environment(s) {', '.join(missing)}")
+    return built
+
+
+def build_compiler(
+    *,
+    config: SeanertestConfig,
+    architecture: Architecture,
+    spack_packages_commit: str,
+    cache_dir: Path,
+    cache_type: str,
+    oci_url: str | None = None,
+    upstream: tuple[str, ...] = (),
+    seanerstack_src: Path | None = None,
+    docker_client=None,
+    log=print,
+) -> None:
+    """Bootstrap only the compiler and push it, with everything it needs.
+
+    This is the build script of a session without environments, so the
+    compiler gets the same hash as in every session: building it takes hours,
+    and later sessions install it from the cache instead.
+    """
+    log(f"seanertest: building {config.compiler} for {architecture.name} in {architecture.image}")
+    _run_build(
+        {},
+        config=config,
+        architecture=architecture,
+        spack_packages_commit=spack_packages_commit,
+        cache_dir=cache_dir,
+        cache_type=cache_type,
+        oci_url=oci_url,
+        upstream=upstream,
+        seanerstack_src=seanerstack_src,
+        docker_client=docker_client,
+        log=log,
+    )
+
+
+def _run_build(
+    environments: dict[str, bytes],
+    *,
+    config: SeanertestConfig,
+    architecture: Architecture,
+    spack_packages_commit: str,
+    cache_dir: Path,
+    cache_type: str,
+    oci_url: str | None,
+    upstream: tuple[str, ...],
+    seanerstack_src: Path | None,
+    docker_client,
+    log,
+) -> None:
+    """Run the build script in a build container for the given spack.yaml contents."""
+    target = destination(cache_type, oci_url)
     environment_variables = _container_environment(config.seanerstack_pip, cache_type, oci_url)
     upstream_urls = []
     for url in upstream:
@@ -139,10 +214,10 @@ def run_build_phase(
         upstream_urls.append(url)
     with tempfile.TemporaryDirectory(prefix="seanertest-build-") as work:
         work_dir = Path(work)
-        for key, environment in pending.items():
+        for key, content in environments.items():
             directory = work_dir / "environments" / key
             directory.mkdir(parents=True)
-            (directory / "spack.yaml").write_bytes(environment.content)
+            (directory / "spack.yaml").write_bytes(content)
         settings = BuildSettings(
             spack_git=config.spack_git,
             spack_version=config.spack_version,
@@ -151,7 +226,7 @@ def run_build_phase(
             compiler=config.compiler,
             target=architecture.target,
             packages=config.build_packages,
-            environments=tuple(pending),
+            environments=tuple(environments),
             cache_url=cache_url(cache_type, oci_url),
             oci=cache_type == "oci",
             host_uid=os.getuid(),
@@ -169,11 +244,6 @@ def run_build_phase(
             seanerstack_src=seanerstack_src,
             log=log,
         )
-
-    missing = [key for key in pending if not built[pending[key]].lock.is_file()]
-    if missing:
-        raise BuildError(f"the build container produced no lock file for environment(s) {', '.join(missing)}")
-    return built
 
 
 def _container_environment(seanerstack_pip: str, cache_type: str, oci_url: str | None) -> dict[str, str]:

@@ -195,3 +195,17 @@ def test_cache_server_rejects_an_address_of_another_host(tmp_path):
             pytest.skip("this host owns the documentation address")
     with pytest.raises(CacheServerError, match="not an address of this host"):
         CacheServer(tmp_path, "192.0.2.1").start()
+
+
+def test_compiler_only_build_bootstraps_and_pushes_without_environments():
+    script = build_script(replace(BUILD, environments=()))
+    assert "toolchain bootstrap gcc@15" in script
+    assert "packages:all:require:target=x86_64_v3" in script
+    assert script.index("packages:all:require") < script.index("toolchain bootstrap")
+    assert "==> environment" not in script
+    assert "push --unsigned --update-index --only package seanertest-cache" in script
+
+
+def test_compiler_only_command_does_not_import_seanerops():
+    code = "import sys, seanertest.build.__main__; sys.exit('seanerops' in sys.modules)"
+    assert subprocess.run([sys.executable, "-c", code]).returncode == 0

@@ -75,11 +75,12 @@ Registry credentials come from `docker login`, or from `SEANERTEST_OCI_USERNAME`
 `SEANERTEST_OCI_PASSWORD` for a target's OCI cache and `SEANERTEST_UPSTREAM_USERNAME` and
 `SEANERTEST_UPSTREAM_PASSWORD` for the upstream caches in `config.yml`.
 
-## Filling the shared build cache
+## Building the compiler once
 
-The first build of the compiler and of Flux takes hours. It can be done once and shared through
-the seanerstack build cache in the SEANERGYS registry, which `config.yml` lists as an upstream
-cache. Later builds install from there instead of compiling.
+Bootstrapping the compiler, `gcc@15`, takes hours, while the environments of the tests build in
+minutes once the compiler is available. The compiler is therefore built once, on a strong machine,
+and shared through the seanerstack build cache in the SEANERGYS registry, which `config.yml` lists
+as an upstream cache. Test sessions install it from there and build their environments themselves.
 
 1. Log in with an account that may write to the registry:
 
@@ -87,15 +88,16 @@ cache. Later builds install from there instead of compiling.
     docker login registry.seanergys.fz-juelich.de
     ```
 
-2. Build every environment of the tests and push the binaries:
+2. Build the compiler and push it:
 
     ```bash
-    scripts/build-buildcache.sh
+    scripts/build-compiler.sh
     ```
 
-The script expects checkouts of seanerops and seanerstack next to this one; `SEANEROPS_SRC` and
-`SEANERSTACK_SRC` select others. It runs `python -m seanertest.build`, which builds exactly what a
-test session builds, so test sessions find matching binaries.
+The script needs Docker, uv and a seanerstack checkout, by default the one next to this checkout;
+`SEANERSTACK_SRC` selects another. It runs `python -m seanertest.build --compiler-only`, which runs
+the build script of a session without environments, so the compiler gets the same hash as in every
+test session. `python -m seanertest.build FIXTURE...` builds environments the same way.
 
 ## Writing a test
 

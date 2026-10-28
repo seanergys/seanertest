@@ -365,9 +365,11 @@ The filesystem cache is not used to fill the OCI cache.
 - **Upstream caches:** `config.yml` lists read-only caches, currently the seanerstack build cache in
   the SEANERGYS registry. The build container installs binaries from them before it builds
   anything, and pushes everything it installed to the target's cache.
-- **Filling the shared cache:** `scripts/build-buildcache.sh` runs the build phase on its own,
-  through `python -m seanertest.build`, and pushes to the seanerstack build cache. It builds exactly
-  what a test session builds, so the hashes match.
+- **Building the compiler once:** Bootstrapping `gcc@15` takes hours, while the environments build
+  in minutes. `scripts/build-compiler.sh` runs `python -m seanertest.build --compiler-only`, which
+  runs the build script of a session without environments, and pushes the compiler to the
+  seanerstack build cache. The compiler therefore gets the same hash as in every test session, which
+  installs it from there. This path needs only seanerstack, not seanerops.
 - **Lock files per destination:** Lock files are kept for each destination cache. A lock file
   proves that the environment's binaries are in that cache, so a build pushed to the registry does
   not make a later session skip filling its local cache.
