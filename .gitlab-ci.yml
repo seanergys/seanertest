@@ -68,13 +68,14 @@ integration:minikube:
   variables:
     MINIKUBE_PROFILE: seanertest-ci
     KUBECONFIG: ${CI_PROJECT_DIR}/.ci/kubeconfig
-    # Kept on the runner, so that later pipelines install binaries instead of
-    # building them.
-    SEANERTEST_CACHE_DIR: ${HOME}/.cache/seanertest-ci
     # Fixed, so that a firewall on the runner can allow exactly this port from
     # the minikube network.
     SEANERTEST_CACHE_PORT: "18080"
   before_script:
+    # Kept on the runner, so that later pipelines install binaries instead of
+    # building them. Set here, because GitLab expands job variables before
+    # the job reaches the runner, where HOME is not yet known.
+    - export SEANERTEST_CACHE_DIR="$HOME/.cache/seanertest-ci"
     - mkdir -p .ci
     - minikube delete --profile "$MINIKUBE_PROFILE" || true
     - minikube start --profile "$MINIKUBE_PROFILE" --driver docker --cpus 4 --memory 8g --wait all
