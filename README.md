@@ -71,9 +71,13 @@ Seanerstack is installed in the build container from the SEANERGYS GitLab. If th
 credentials, set `SEANERTEST_GIT_TOKEN`, and optionally `SEANERTEST_GIT_USERNAME`. To install it from
 a local checkout instead, set `SEANERTEST_SEANERSTACK_SRC` to the checkout.
 
-Registry credentials come from `docker login`, or from `SEANERTEST_OCI_USERNAME` and
+Registry credentials come from `docker login registry.seanergys.fz-juelich.de`, or from
+`SEANERTEST_OCI_USERNAME` and
 `SEANERTEST_OCI_PASSWORD` for a target's OCI cache and `SEANERTEST_UPSTREAM_USERNAME` and
-`SEANERTEST_UPSTREAM_PASSWORD` for the upstream caches in `config.yml`.
+`SEANERTEST_UPSTREAM_PASSWORD` for the upstream caches in `config.yml`. Log in without a port:
+Docker stores logins by the exact host name, so a login for `registry.seanergys.fz-juelich.de:443`
+is not used for `registry.seanergys.fz-juelich.de`, and the registry then answers with
+`access forbidden`.
 
 ## Building the compiler once
 
