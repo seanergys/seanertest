@@ -3,8 +3,9 @@
 #
 # SPDX-License-Identifier: MIT
 
-# Prepare a Rocky Linux 10 VM as the GitLab runner tagged `shell`, which runs
-# the minikube jobs of seanertest and seanerops.
+# Prepare a Rocky Linux 10 VM as the GitLab runner with the tags shell,
+# testbed, generic and micro, which runs the minikube jobs of seanertest and
+# seanerops.
 #
 # Usage, as root on the VM: setup-shell-runner.sh
 #
@@ -110,7 +111,8 @@ cat <<EOF
 
 The runner VM is prepared. Remaining manual steps:
 
-1. Create a runner in GitLab with the tag 'shell' and copy its token, then
+1. Create a runner in GitLab with the tags shell, testbed, generic and micro
+   and copy its token, then
    register it here:
 
        gitlab-runner register --non-interactive \\

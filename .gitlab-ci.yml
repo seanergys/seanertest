@@ -29,12 +29,16 @@ lint:reuse:
   script:
     - reuse lint
 
-# The runner tagged `shell` provides Docker, minikube and uv. seanerops and
-# seanerstack are installed from GitLab with the job token, passed through
-# Git's environment configuration so that nothing is written to the runner.
+# The testbed runner, with the tags shell, testbed, generic and micro, provides
+# Docker, minikube and uv. seanerops and seanerstack are installed from GitLab
+# with the job token, passed through Git's environment configuration so that
+# nothing is written to the runner.
 .shell:
   tags:
     - shell
+    - testbed
+    - generic
+    - micro
   variables:
     GIT_CONFIG_COUNT: "1"
     GIT_CONFIG_KEY_0: "url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.seanergys.fz-juelich.de/.insteadOf"

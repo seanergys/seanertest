@@ -469,7 +469,7 @@ gigabytes, so the user decides where it is kept.
 | `environment` and `container` drivers | seanertest | Implemented; tests pass on minikube 1.39 |
 | Flux driver | seanertest | Implemented; tests pass on minikube 1.39 |
 | OCI build cache | seanertest | Implemented; not yet tested |
-| Continuous integration on the `shell` runner | seanerops, seanertest | Implemented; not yet run |
+| Continuous integration on the testbed runner, tagged `shell`, `testbed`, `generic` and `micro` | seanerops, seanertest | Implemented; not yet run |
 | `aarch64` | seanertest | Not yet implemented |
 
 - **Lock files:** Pods receive the lock file of their environment in a ConfigMap together with the
