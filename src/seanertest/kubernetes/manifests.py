@@ -28,6 +28,12 @@ HOST_DIRECTORY = "/var/lib/seanertest"
 READY_FILE = "/tmp/seanertest-ready"
 OCI_SECRET = "seanertest-oci"
 
+# Kubernetes injects <SERVICE>_PORT=tcp://... and similar variables for every
+# Service of the namespace. Images read such names as their own settings, for
+# example SeaweedFS takes S3_PORT as its port, so they are switched off. Pods
+# find services through DNS.
+SERVICE_LINKS = {"enableServiceLinks": False}
+
 
 def namespace(name: str) -> dict:
     return {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": name, "labels": dict(MANAGED_BY)}}
@@ -96,6 +102,7 @@ def installer_pod(
         "kind": "Pod",
         "metadata": {"name": name, "namespace": namespace, "labels": dict(MANAGED_BY)},
         "spec": {
+            **SERVICE_LINKS,
             "restartPolicy": "Never",
             "nodeSelector": {"kubernetes.io/hostname": host},
             "containers": [container],
@@ -121,6 +128,7 @@ def node_pod(namespace: str, node: LogicalNode, *, image: str, packages: tuple[s
             "labels": {**MANAGED_BY, NODE_LABEL: "true", "seanertest/role": node.role},
         },
         "spec": {
+            **SERVICE_LINKS,
             "hostname": node.name,
             "subdomain": NODES_SERVICE,
             "restartPolicy": "Never",
@@ -174,7 +182,7 @@ def container_pod(
             "namespace": namespace,
             "labels": {**MANAGED_BY, "seanertest/service": name},
         },
-        "spec": {"restartPolicy": "Never", "containers": [container]},
+        "spec": {**SERVICE_LINKS, "restartPolicy": "Never", "containers": [container]},
     }
     if files and config_map_name is not None:
         container["volumeMounts"] = [

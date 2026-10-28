@@ -88,3 +88,17 @@ def test_flux_config_uses_pod_names_and_excludes_unschedulable_ranks():
     assert 'exclude = "0-1"' in config
     assert 'cores = "0-3"' in config
     assert 'properties = ["compute", "laptop"]' in config
+
+
+def test_pods_get_no_service_variables():
+    # SeaweedFS reads the injected S3_PORT=tcp://... of its own Service as its
+    # port and exits.
+    pods = [
+        manifests.node_pod("ns", NODE, image="i", packages=()),
+        manifests.installer_pod("ns", "install-0", host="h", image="i", config_map_name="env", oci=False),
+        manifests.container_pod(
+            "ns", "s3", image="i", command=None, entrypoint=None, environment={}, ports=(8333,), files={},
+            config_map_name=None,
+        ),
+    ]
+    assert all(pod["spec"]["enableServiceLinks"] is False for pod in pods)
