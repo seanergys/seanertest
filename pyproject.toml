@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seanertest"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Integration tests for SEANERGYS services on testbeds"
 requires-python = ">=3.12"
 dependencies = [
@@ -32,6 +32,10 @@ docs = [
 
 [project.entry-points.pytest11]
 seanertest = "seanertest.plugin"
+
+# The version is defined once, in src/seanertest/__init__.py.
+[tool.hatch.version]
+path = "src/seanertest/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seanertest"]
