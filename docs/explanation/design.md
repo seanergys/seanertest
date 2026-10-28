@@ -431,7 +431,6 @@ gigabytes, so the user decides where it is kept.
 | Question | Notes | Status |
 | --- | --- | --- |
 | How does the build container use a `spack-packages` location other than GitHub? | Seanerstack currently fixes the GitHub URL. It needs an override before `sources.spack_packages.git` can point the build container at a local mirror. | Deferred |
-| Does Spack need the package recipes for binary installations? | If it does not, the per-host installer skips cloning `spack-packages`. This is checked when Spack first runs in the Rocky Linux 10 image. | Open |
 | Which credentials does the build phase use to push to the OCI cache? | Writing requires a token with write access, which only CI should hold. | Open |
 | Which Spack target is used for `aarch64`? | Decided together with the `aarch64` builder host. | Deferred |
 | Should `shared` mode check capacity against the hosts' allocatable resources? | Without a check, pods that do not fit stay `Pending` until the readiness timeout. | Deferred |
@@ -447,8 +446,8 @@ gigabytes, so the user decides where it is kept.
 | `k3s` runtime on BareMetal | seanerops | Implemented; integration test runs on the `dind` runner |
 | Pinned `spack-packages` commit | seanerstack | Implemented and unit-tested |
 | Fixture version 2, configuration, targets | seanertest | Implemented and unit-tested |
-| Build phase in the Rocky Linux 10 build container | seanertest | Implemented; not yet run against Spack |
-| HTTP cache server | seanertest | Implemented and unit-tested |
+| Build phase in the Rocky Linux 10 build container | seanertest | Implemented; run with Spack 1.2.2 without the compiler bootstrap |
+| HTTP cache server | seanertest | Implemented and unit-tested; blocked by a host firewall that drops inbound traffic |
 | Kubernetes backend, installer pods, node pods, container services | seanertest | Implemented; not yet run against a cluster |
 | Flux, `environment` and `container` drivers | seanertest | Implemented; not yet run against a cluster |
 | OCI build cache | seanertest | Implemented; not yet tested |
@@ -457,5 +456,26 @@ gigabytes, so the user decides where it is kept.
 
 - **Lock files:** Pods receive the lock file of their environment in a ConfigMap together with the
   install script. This works for both cache types.
-- **Recipes in pods:** The installer pods clone the pinned `spack-packages` commit. Whether Spack
-  needs it for binary installations is still to be checked.
+- **Recipes in pods:** The installer pods clone the pinned `spack-packages` commit. Spack needs the
+  recipes even for binary installations: without them, the installation fails with `Unknown
+  namespace: builtin`.
+
+### Results in Rocky Linux containers
+
+The build script and the install script were run in Docker containers of the approved image on
+2026-10-28, with `m4@1.4.19` as the environment.
+
+| Check | Result | Status |
+| --- | --- | --- |
+| Package names of `system_packages` | All packages install in Rocky Linux 9 and 10. | Verified |
+| Python version | Rocky Linux 10 has Python 3.12, which seanerstack requires. Rocky Linux 9 has Python 3.9, so seanerstack cannot run there. | Verified |
+| Build script | Installs seanerstack, activates it, adds the cache mirror, requires `x86_64_v3`, builds the environment, pushes seven packages to the filesystem cache, and leaves the files owned by the host user. The system compiler is detected automatically. | Verified |
+| Compiler bootstrap | Skipped in the test run, because building `gcc@15` takes more than an hour on the test machine. | Not yet verified |
+| Install script | Installs the environment from the lock file with `--use-buildcache only`. All packages come from the cache with the same hashes and the same store path, and only runtime dependencies are installed. The activated view provides `m4`. | Verified |
+| Install script without `spack-packages` | Fails with `Unknown namespace: builtin`. | Verified |
+| HTTP cache server reached from a container | Fails on a host where ufw drops inbound traffic, because the container cannot reach the host's address on the Docker network. | Open |
+
+- **Host firewall:** On a host with a firewall such as ufw that drops inbound traffic, the HTTP
+  cache needs a rule that allows the cluster's network to reach the host, for example
+  `ufw allow in on <bridge interface> from <cluster subnet>`. A fixed port in the target would let
+  the rule name that port only. This is not yet implemented.
