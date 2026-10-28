@@ -120,8 +120,9 @@ The runner VM is prepared. Remaining manual steps:
            --token <token> \\
            --executor shell
 
-2. Optional: let seanertest install the compiler from the registry instead of
-   building it, by logging in as the runner user:
+The CI jobs read the registry with their job token, so the runner needs no
+docker login. To run seanertest by hand on this VM and install the compiler
+from the registry instead of building it, log in as the user that runs it:
 
-       su - $runner_user -c 'docker login registry.seanergys.fz-juelich.de'
+    docker login registry.seanergys.fz-juelich.de
 EOF

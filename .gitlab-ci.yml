@@ -38,7 +38,9 @@ lint:reuse:
 # Docker, minikube and uv. seanerops and seanerstack come from the package
 # index of this project's group on this GitLab, read with the job token. uv
 # uses it for seanertest's dependencies, pip in the build container for
-# seanerstack.
+# seanerstack. The job token also reads the seanerstack build cache in the
+# registry, the upstream cache of config.yml, so that the build container
+# installs the compiler from there instead of building it.
 .shell:
   tags:
     - shell
@@ -50,6 +52,8 @@ lint:reuse:
     UV_INDEX_SEANERGYS_USERNAME: gitlab-ci-token
     UV_INDEX_SEANERGYS_PASSWORD: "${CI_JOB_TOKEN}"
     PIP_EXTRA_INDEX_URL: "${CI_SERVER_PROTOCOL}://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_FQDN}/api/v4/groups/${CI_PROJECT_NAMESPACE_ID}/-/packages/pypi/simple"
+    SEANERTEST_UPSTREAM_USERNAME: gitlab-ci-token
+    SEANERTEST_UPSTREAM_PASSWORD: "${CI_JOB_TOKEN}"
 
 selftest:
   extends: .shell
