@@ -158,7 +158,11 @@ docs/
 
 ## Continuous integration
 
-The jobs run on the runner tagged `shell`, which provides Docker, minikube and uv.
+The jobs run on the runner tagged `shell`, which provides Docker, minikube and uv. To prepare a
+Rocky Linux 10 VM as that runner, run `scripts/setup-shell-runner.sh` as root on the VM. It
+installs Docker, minikube, kubectl, uv, Git and gitlab-runner, gives the runner user access to
+Docker, and opens the build cache port to the minikube network. Registering the runner with GitLab
+stays a manual step, and the script prints the command for it.
 
 | Job | Purpose |
 | --- | --- |
