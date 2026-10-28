@@ -443,14 +443,15 @@ gigabytes, so the user decides where it is kept.
 | --- | --- | --- |
 | Target descriptions, node requests, allocation in both modes, `testbed.json` | seanerops | Implemented and unit-tested |
 | Library lifecycle with `testbed()`, and the thin command-line interface | seanerops | Implemented and unit-tested |
-| `external` runtime on minikube | seanerops | Implemented; integration test runs on the `shell` runner |
+| `external` runtime on minikube | seanerops | Implemented; integration test passes on minikube 1.39 |
 | `k3s` runtime on BareMetal | seanerops | Implemented; integration test runs on the `dind` runner |
 | Pinned `spack-packages` commit | seanerstack | Implemented and unit-tested |
 | Fixture version 2, configuration, targets | seanertest | Implemented and unit-tested |
 | Build phase in the Rocky Linux 10 build container | seanertest | Implemented; run with Spack 1.2.2 without the compiler bootstrap |
 | HTTP cache server | seanertest | Implemented; verified from a container through a ufw rule for its fixed port |
-| Kubernetes backend, installer pods, node pods, container services | seanertest | Implemented; not yet run against a cluster |
-| Flux, `environment` and `container` drivers | seanertest | Implemented; not yet run against a cluster |
+| Kubernetes backend, installer pods, node pods, container services | seanertest | Implemented; tests pass on minikube 1.39 |
+| `environment` and `container` drivers | seanertest | Implemented; tests pass on minikube 1.39 |
+| Flux driver | seanertest | Implemented; not yet run, because building Flux needs the compiler bootstrap |
 | OCI build cache | seanertest | Implemented; not yet tested |
 | Continuous integration on the `shell` runner | seanerops, seanertest | Implemented; not yet run |
 | `aarch64` | seanertest | Not yet implemented |
@@ -471,9 +472,10 @@ The build script and the install script were run in Docker containers of the app
 | Package names of `system_packages` | All packages install in Rocky Linux 9 and 10. | Verified |
 | Python version | Rocky Linux 10 has Python 3.12, which seanerstack requires. Rocky Linux 9 has Python 3.9, so seanerstack cannot run there. | Verified |
 | Build script | Installs seanerstack, activates it, adds the cache mirror, requires `x86_64_v3`, builds the environment, pushes seven packages to the filesystem cache, and leaves the files owned by the host user. The system compiler is detected automatically. | Verified |
-| Compiler bootstrap | Skipped in the test run, because building `gcc@15` takes more than an hour on the test machine. | Not yet verified |
+| Compiler bootstrap | Building `gcc@15` takes more than an hour on the test machine and was not run. The image's system compiler cannot stand in: seanerstack's bootstrap fails with `Spack reports no installation prefix for 'gcc@14'`, because Spack treats it as an external. | Not yet verified |
 | Install script | Installs the environment from the lock file with `--use-buildcache only`. All packages come from the cache with the same hashes and the same store path, and only runtime dependencies are installed. The activated view provides `m4`. | Verified |
 | Install script without `spack-packages` | Fails with `Unknown namespace: builtin`. | Verified |
+| seanertest on minikube 1.39 | `test-if-spack-package-is-available`, `test-if-service-can-receive-config` and `test-if-we-can-submit-3-jobs` pass in 65 seconds with a prefilled build cache. The installer pod installs the environment over HTTP through the ufw rule, the node pod runs `m4` with the environment activated, and container services are reached through NodePorts. | Verified |
 | HTTP cache server reached from a container | Fails on a host where ufw drops inbound traffic. With a fixed `cache.port` of 18080 and a ufw rule that allows it from `192.168.49.0/24`, a container on a network with minikube's subnet installs the environment over HTTP. | Verified |
 
 - **Host firewall:** On a host with a firewall such as ufw that drops inbound traffic, the HTTP
