@@ -98,7 +98,10 @@ seanertest's pipelines needs access to the seanerops and seanerstack projects.
 Registry credentials come from `docker login registry.seanergys.fz-juelich.de`, or from
 `SEANERTEST_OCI_USERNAME` and
 `SEANERTEST_OCI_PASSWORD` for a target's OCI cache and `SEANERTEST_UPSTREAM_USERNAME` and
-`SEANERTEST_UPSTREAM_PASSWORD` for the upstream caches in `config.yml`. Log in without a port:
+`SEANERTEST_UPSTREAM_PASSWORD` for the upstream caches in `config.yml`. The seanerstack build
+cache has `push: true` in `config.yml`, so a build returns everything that it built from source
+to it when the credentials may write to the registry. With credentials that may only read, the
+build continues and logs a warning. Log in without a port:
 Docker stores logins by the exact host name, so a login for `registry.seanergys.fz-juelich.de:443`
 is not used for `registry.seanergys.fz-juelich.de`, and the registry then answers with
 `access forbidden`.

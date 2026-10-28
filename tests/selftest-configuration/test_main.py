@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import seanerops
 
-from seanertest.config import load_config
+from seanertest.config import ConfigError, UpstreamCache, load_config
 from seanertest.fixture import FixtureError, load_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,7 +22,42 @@ def test_repository_config_names_the_approved_image_and_target():
     assert "gcc" in config.build_packages
     assert "gcc" not in config.install_packages
     assert config.seanerstack_pip == "seanerstack"
-    assert config.upstream_caches == ("oci://registry.seanergys.fz-juelich.de/software/seanerstack/buildcache",)
+    assert config.upstream_caches == (
+        UpstreamCache(url="oci://registry.seanergys.fz-juelich.de/software/seanerstack/buildcache", push=True),
+    )
+
+
+def _config_with_upstream(tmp_path, upstream: str):
+    lines = (ROOT / "config.yml").read_text().splitlines()
+    start = lines.index("upstream_caches:")
+    end = next(index for index in range(start + 1, len(lines)) if lines[index] and not lines[index].startswith(" "))
+    path = tmp_path / "config.yml"
+    path.write_text("\n".join([*lines[:start], upstream, *lines[end:]]) + "\n")
+    return path
+
+
+def test_upstream_caches_are_urls_or_mappings_with_push(tmp_path):
+    path = _config_with_upstream(
+        tmp_path, "upstream_caches:\n  - oci://registry.example.org/a\n  - {url: oci://registry.example.org/b, push: true}"
+    )
+    assert load_config(path).upstream_caches == (
+        UpstreamCache(url="oci://registry.example.org/a"),
+        UpstreamCache(url="oci://registry.example.org/b", push=True),
+    )
+
+
+@pytest.mark.parametrize(
+    ("upstream", "message"),
+    [
+        ("upstream_caches: oci://registry.example.org/a", "must be a list"),
+        ("upstream_caches: [https://registry.example.org/a]", "oci:// URL"),
+        ("upstream_caches: [{url: oci://registry.example.org/a, push: yes please}]", "true or false"),
+        ("upstream_caches: [{url: oci://registry.example.org/a, write: true}]", "write"),
+    ],
+)
+def test_invalid_upstream_caches_are_rejected(tmp_path, upstream, message):
+    with pytest.raises(ConfigError, match=message):
+        load_config(_config_with_upstream(tmp_path, upstream))
 
 
 @pytest.mark.parametrize("path", sorted((ROOT / "targets").glob("*.yml")), ids=lambda path: path.stem)

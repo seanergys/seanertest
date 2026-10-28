@@ -29,7 +29,7 @@ from seanertest.build.scripts import (
     BuildSettings,
     build_script,
 )
-from seanertest.config import Architecture, SeanertestConfig
+from seanertest.config import Architecture, SeanertestConfig, UpstreamCache
 from seanertest.credentials import oci_credentials
 
 if TYPE_CHECKING:
@@ -120,7 +120,7 @@ def run_build_phase(
     cache_dir: Path,
     cache_type: str,
     oci_url: str | None = None,
-    upstream: tuple[str, ...] = (),
+    upstream: tuple[UpstreamCache, ...] = (),
     seanerstack_src: Path | None = None,
     docker_client=None,
     log=print,
@@ -173,7 +173,7 @@ def build_compiler(
     cache_dir: Path,
     cache_type: str,
     oci_url: str | None = None,
-    upstream: tuple[str, ...] = (),
+    upstream: tuple[UpstreamCache, ...] = (),
     seanerstack_src: Path | None = None,
     docker_client=None,
     log=print,
@@ -209,7 +209,7 @@ def _run_build(
     cache_dir: Path,
     cache_type: str,
     oci_url: str | None,
-    upstream: tuple[str, ...],
+    upstream: tuple[UpstreamCache, ...],
     seanerstack_src: Path | None,
     docker_client,
     log,
@@ -217,17 +217,19 @@ def _run_build(
     """Run the build script in a build container for the given spack.yaml contents."""
     target = destination(cache_type, oci_url)
     environment_variables = _container_environment(config.seanerstack_pip, cache_type, oci_url)
-    upstream_urls = []
-    for url in upstream:
-        if url == oci_url:
+    upstream_caches = []
+    for cache in upstream:
+        if cache.url == oci_url:
             continue
-        credentials = oci_credentials(url, UPSTREAM_USERNAME, UPSTREAM_PASSWORD) if url.startswith("oci://") else None
-        if url.startswith("oci://") and credentials is None:
-            log(f"seanertest: no credentials for upstream cache {url}; run docker login to use it")
+        credentials = oci_credentials(cache.url, UPSTREAM_USERNAME, UPSTREAM_PASSWORD)
+        if credentials is None:
+            log(
+                f"seanertest: no credentials for upstream cache {cache.url}; everything it holds is built from "
+                f"source. Run docker login or set {UPSTREAM_USERNAME} and {UPSTREAM_PASSWORD}"
+            )
             continue
-        if credentials is not None:
-            environment_variables[UPSTREAM_USERNAME], environment_variables[UPSTREAM_PASSWORD] = credentials
-        upstream_urls.append(url)
+        environment_variables[UPSTREAM_USERNAME], environment_variables[UPSTREAM_PASSWORD] = credentials
+        upstream_caches.append(cache)
     # The build script returns its files to the calling user; should that ever
     # fail, a leftover directory must not abort the session.
     with tempfile.TemporaryDirectory(prefix="seanertest-build-", ignore_cleanup_errors=True) as work:
@@ -252,7 +254,8 @@ def _run_build(
             host_uid=os.getuid(),
             host_gid=os.getgid(),
             locks=f"/cache/environments/{target}",
-            upstream=tuple(upstream_urls),
+            upstream=tuple(cache.url for cache in upstream_caches),
+            push_upstream=tuple(cache.url for cache in upstream_caches if cache.push),
         )
         (work_dir / "build.sh").write_text(build_script(settings), encoding="utf-8")
         _run_container(

@@ -35,7 +35,7 @@ UPSTREAM_MIRROR = "seanertest-upstream"
 OCI_USERNAME = "SEANERTEST_OCI_USERNAME"
 OCI_PASSWORD = "SEANERTEST_OCI_PASSWORD"
 
-# Credentials for the read-only upstream caches.
+# Credentials for the upstream caches.
 UPSTREAM_USERNAME = "SEANERTEST_UPSTREAM_USERNAME"
 UPSTREAM_PASSWORD = "SEANERTEST_UPSTREAM_PASSWORD"
 
@@ -56,6 +56,7 @@ class BuildSettings:
     host_gid: int
     locks: str = "/cache/environments/local"
     upstream: tuple[str, ...] = ()
+    push_upstream: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -174,11 +175,23 @@ def build_script(settings: BuildSettings) -> str:
             f"cp {work}/spack.yaml {work}/spack.lock {settings.locks}/{environment}/",
             "",
         ]
+    every_spec = "$(spack find --format '/{hash}')"
     lines += [
         "# Push everything, the compiler and what came from upstream caches included,",
         "# so that the next build and the pods install binaries instead of building.",
-        f"spack buildcache push --unsigned --update-index --only package {MIRROR} $(spack find --format '/{{hash}}')",
+        f"spack buildcache push --unsigned --update-index --only package {MIRROR} {every_spec}",
     ]
+    for index, url in enumerate(settings.upstream):
+        if url not in settings.push_upstream:
+            continue
+        lines += [
+            "",
+            f"# Return what was built here to {url}. Spack skips the binaries that it",
+            "# has already. Credentials that may only read make this a warning, not a",
+            "# failed build.",
+            f"spack buildcache push --unsigned --update-index --only package {UPSTREAM_MIRROR}-{index} {every_spec} \\",
+            f"  || echo {shlex.quote(f'warning: could not push to the upstream cache {url}')} >&2",
+        ]
     return "\n".join(line for line in lines if line is not None) + "\n"
 
 

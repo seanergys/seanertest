@@ -40,7 +40,11 @@ lint:reuse:
 # uses it for seanertest's dependencies, pip in the build container for
 # seanerstack. The job token also reads the seanerstack build cache in the
 # registry, the upstream cache of config.yml, so that the build container
-# installs the compiler from there instead of building it.
+# installs the compiler from there instead of building it. It cannot write to
+# another project's registry, so pushing back what the build built from source
+# needs a deploy token with the write_registry scope, set as the masked CI/CD
+# variables SEANERTEST_UPSTREAM_USERNAME and SEANERTEST_UPSTREAM_PASSWORD of
+# the project or group. Those take precedence over the values here.
 .shell:
   tags:
     - shell

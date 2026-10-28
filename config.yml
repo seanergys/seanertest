@@ -19,11 +19,15 @@ sources:
 
 compiler: gcc@15
 
-# Read-only caches that the build container installs binaries from before it
-# builds anything. Credentials come from `docker login` for the registry, or
-# from SEANERTEST_UPSTREAM_USERNAME and SEANERTEST_UPSTREAM_PASSWORD.
+# Caches that the build container installs binaries from before it builds
+# anything. With `push: true`, it pushes everything that a cache is missing
+# back to it after the build; with credentials that may only read, that push
+# is skipped with a warning. Credentials come from `docker login` for the
+# registry, or from SEANERTEST_UPSTREAM_USERNAME and
+# SEANERTEST_UPSTREAM_PASSWORD.
 upstream_caches:
-  - oci://registry.seanergys.fz-juelich.de/software/seanerstack/buildcache
+  - url: oci://registry.seanergys.fz-juelich.de/software/seanerstack/buildcache
+    push: true
 
 architectures:
   x86_64:

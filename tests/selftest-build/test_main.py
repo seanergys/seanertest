@@ -73,9 +73,23 @@ def test_build_script_reads_from_upstream_caches_before_the_compiler_bootstrap()
     )
     assert upstream in script
     assert script.index(upstream) < script.index("toolchain bootstrap")
-    # Binaries are pushed only to the session's own cache.
+    # Without push, binaries go only to the session's own cache.
     assert "push --unsigned --update-index --only package seanertest-cache" in script
     assert "push --unsigned --update-index --only package seanertest-upstream" not in script
+
+
+def test_build_script_pushes_back_to_writable_upstream_caches_after_its_own_cache():
+    read_only = "oci://registry.example.org/read-only"
+    writable = "oci://registry.example.org/seanerstack/buildcache"
+    script = build_script(replace(BUILD, upstream=(read_only, writable), push_upstream=(writable,)))
+    own = script.index("push --unsigned --update-index --only package seanertest-cache ")
+    upstream = script.index("push --unsigned --update-index --only package seanertest-upstream-1 ")
+    assert own < upstream
+    assert "--only package seanertest-upstream-0 " not in script
+    # A cache that may only be read makes the push a warning.
+    assert f"|| echo 'warning: could not push to the upstream cache {writable}' >&2" in script
+    result = subprocess.run(["bash", "-n"], input=script, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(("commit", "returncode"), [(BUILTIN_REPO_COMMIT, 0), ("0" * 40, 1)])

@@ -362,9 +362,13 @@ The build phase runs before any testbed is requested and before any test starts.
 
 The filesystem cache is not used to fill the OCI cache.
 
-- **Upstream caches:** `config.yml` lists read-only caches, currently the seanerstack build cache in
+- **Upstream caches:** `config.yml` lists upstream caches, currently the seanerstack build cache in
   the SEANERGYS registry. The build container installs binaries from them before it builds
   anything, and pushes everything it installed to the target's cache.
+- **Pushing back:** An upstream cache with `push: true` receives every binary that it is missing
+  after the build, so that what one session built from source is installed by the next one,
+  on any machine. Spack skips the binaries that the cache has already. With credentials that may
+  only read, the push fails and the build continues with a warning.
 - **Building the compiler once:** Bootstrapping `gcc@15` takes hours, while the environments build
   in minutes. `scripts/build-compiler.sh` runs `python -m seanertest.build --compiler-only`, which
   runs the build script of a session without environments, and pushes the compiler to the

@@ -32,6 +32,18 @@ class Architecture:
 
 
 @dataclass(frozen=True)
+class UpstreamCache:
+    """A build cache that the build container installs binaries from.
+
+    With ``push``, the build container also pushes the binaries that the cache
+    is missing, so that the next build installs instead of building them.
+    """
+
+    url: str
+    push: bool = False
+
+
+@dataclass(frozen=True)
 class SeanertestConfig:
     path: Path
     spack_git: str
@@ -43,7 +55,7 @@ class SeanertestConfig:
     build_packages: tuple[str, ...]
     install_packages: tuple[str, ...]
     node_packages: tuple[str, ...]
-    upstream_caches: tuple[str, ...] = ()
+    upstream_caches: tuple[UpstreamCache, ...] = ()
 
     def architecture(self, name: str) -> Architecture:
         try:
@@ -94,9 +106,10 @@ def load_config(path: Path) -> SeanertestConfig:
             name=name, image=_string(raw, "image", arch_where), target=_string(raw, "target", arch_where)
         )
 
-    upstream = data.get("upstream_caches", [])
-    if not isinstance(upstream, list) or not all(isinstance(url, str) and url.startswith("oci://") for url in upstream):
-        raise ConfigError(f"{where}: upstream_caches must be a list of oci:// URLs")
+    raw_upstream = data.get("upstream_caches", [])
+    if not isinstance(raw_upstream, list):
+        raise ConfigError(f"{where}: upstream_caches must be a list")
+    upstream = [_upstream_cache(raw, f"{where}: upstream_caches[{index}]") for index, raw in enumerate(raw_upstream)]
 
     packages = data.get("system_packages")
     _mapping(packages, f"{where}: system_packages")
@@ -115,6 +128,21 @@ def load_config(path: Path) -> SeanertestConfig:
         node_packages=_packages(packages, "node", where),
         upstream_caches=tuple(upstream),
     )
+
+
+def _upstream_cache(raw: Any, where: str) -> UpstreamCache:
+    """An upstream cache, given as its URL or as a mapping with ``url`` and ``push``."""
+    if isinstance(raw, str):
+        raw = {"url": raw}
+    _mapping(raw, where)
+    _known(raw, {"url", "push"}, where)
+    url = _string(raw, "url", where)
+    if not url.startswith("oci://"):
+        raise ConfigError(f"{where}: url must be an oci:// URL")
+    push = raw.get("push", False)
+    if not isinstance(push, bool):
+        raise ConfigError(f"{where}: push must be true or false")
+    return UpstreamCache(url=url, push=push)
 
 
 def _packages(raw: dict, key: str, where: str) -> tuple[str, ...]:
