@@ -1,8 +1,0 @@
-# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
-#
-# SPDX-License-Identifier: MIT
-
-# Generic Flux service configuration. Machine hostnames/resources are generated
-# separately from hosts.yaml after SeanerTest provisions the selected machine.
-[tbon]
-tcp_user_timeout = "10s"

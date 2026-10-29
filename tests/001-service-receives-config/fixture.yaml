@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 2
+
+services:
+  - name: configured-service
+    driver: container
+    image: python:3.12-alpine
+    config: config.yml
+    command:
+      - sh
+      - -c
+      - >-
+        exec python -m http.server 8080 --bind 0.0.0.0
+        --directory "$(dirname "$SEANERTEST_CONFIG")"
+    ports:
+      - 8080

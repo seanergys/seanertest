@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 1
+
+sources:
+  spack:
+    git: https://github.com/spack/spack.git
+    version: v1.2.2
+  # The commit is pinned by seanerstack; only the location is configured here.
+  spack_packages:
+    git: https://github.com/spack/spack-packages.git
+  seanerstack:
+    # Plain `seanerstack` installs the version installed next to seanertest, so
+    # that the build container pins the same spack-packages commit. pip finds
+    # it through PIP_INDEX_URL or PIP_EXTRA_INDEX_URL, which are passed in.
+    pip: seanerstack
+
+compiler: gcc@15
+
+# Caches that the build container installs binaries from before it builds
+# anything. With `push: true`, it pushes everything that a cache is missing
+# back to it after the build; with credentials that may only read, that push
+# is skipped with a warning. Credentials come from `docker login` for the
+# registry, or from SEANERTEST_UPSTREAM_USERNAME and
+# SEANERTEST_UPSTREAM_PASSWORD.
+upstream_caches:
+  - url: oci://registry.seanergys.fz-juelich.de/software/seanerstack/buildcache
+    push: true
+
+architectures:
+  x86_64:
+    image: docker.io/rockylinux/rockylinux:10
+    target: x86_64_v3
+
+system_packages:
+  build: [python3, python3-pip, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file, which, findutils, diffutils, gcc, gcc-c++, gcc-gfortran, make]
+  install: [python3, git, tar, gzip, bzip2, xz, zstd, unzip, patch, file, which, findutils]
+  node: [hostname, procps-ng]

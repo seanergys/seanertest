@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 2
+
+nodes:
+  - role: node
+    count: 1
+
+services:
+  - name: package-environment
+    driver: environment
+    roles: [node]
+    software:
+      spack: spack.yaml

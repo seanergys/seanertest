@@ -4,18 +4,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .base import ServiceDriver
+from seanertest.drivers.base import ServiceDriver
 
 
 def get_driver(name: str) -> type[ServiceDriver]:
     if name == "flux":
-        from .flux import FluxDriver
+        from seanertest.drivers.flux import FluxDriver
 
         return FluxDriver
-    raise KeyError(f"unknown service driver {name!r}; available drivers: flux")
+    if name == "environment":
+        from seanertest.drivers.environment import EnvironmentDriver
 
-
-__all__ = ["get_driver"]
+        return EnvironmentDriver
+    raise KeyError(f"unknown node service driver {name!r}")

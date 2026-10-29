@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+# A minikube cluster with the Docker driver on the local machine. The cache
+# address is the gateway of the minikube Docker network, shown by
+# `docker network inspect minikube`. With a firewall that drops inbound
+# traffic, allow the fixed port from the minikube network, for example
+# `sudo ufw allow in from 192.168.49.0/24 to 192.168.49.1 port 18080 proto tcp`.
+version: 1
+name: laptop
+architecture: x86_64
+runtime:
+  type: external
+  kubeconfig: ~/.kube/config
+nodes:
+  - minikube
+cache:
+  type: http
+  address: 192.168.49.1
+  port: 18080

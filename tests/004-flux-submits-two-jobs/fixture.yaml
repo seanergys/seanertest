@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 2
+
+nodes:
+  - role: control
+    count: 1
+  - role: login
+    count: 1
+  - role: compute
+    count: 4
+
+services:
+  - name: seanergys.flux
+    driver: flux
+    roles: [control, login, compute]
+    software:
+      spack: spack.yaml
+    config: flux.toml

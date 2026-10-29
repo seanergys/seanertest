@@ -4,11 +4,13 @@
 
 stages:
   - check
-  - generate
   - test
+  - publish
 
 test_file_names:
   stage: check
+  tags:
+    - docker
   image: alpine:latest
   script:
     - |
@@ -24,30 +26,136 @@ test_file_names:
 
 lint:reuse:
   stage: check
+  tags:
+    - docker
   image:
     name: fsfe/reuse:latest
     entrypoint: [""]
   script:
     - reuse lint
 
-generate-test-pipeline:
-  stage: generate
-  image: python:3.12-alpine
+# Broken links and unknown pages fail the build in strict mode.
+docs:
+  stage: check
   tags:
     - docker
-  before_script:
-    - python -m pip install PyYAML
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
   script:
-    - python scripts/generate-test-pipeline.py > generated-test-pipeline.yml
-    - cat generated-test-pipeline.yml
+    - uv run --no-project --with "properdocs>=1.6.7" --with "mkdocs-materialx>=10.2.0" properdocs build --strict
   artifacts:
     paths:
-      - generated-test-pipeline.yml
+      - site/
 
-run-tests:
+# The testbed runner, with the tags shell, testbed, generic and micro, provides
+# Docker, minikube and uv. seanerops and seanerstack come from the package
+# index of this project's group on this GitLab, read with the job token. uv
+# uses it for seanertest's dependencies, pip in the build container for
+# seanerstack. The job token also reads the seanerstack build cache in the
+# registry, the upstream cache of config.yml, so that the build container
+# installs the compiler from there instead of building it. It cannot write to
+# another project's registry, so pushing back what the build built from source
+# needs a deploy token with the write_registry scope, set as the masked CI/CD
+# variables SEANERTEST_UPSTREAM_USERNAME and SEANERTEST_UPSTREAM_PASSWORD of
+# the project or group. Those take precedence over the values here.
+.shell:
+  tags:
+    - shell
+    - testbed
+    - generic
+    - micro
+  variables:
+    UV_INDEX: "seanergys=${CI_API_V4_URL}/groups/${CI_PROJECT_NAMESPACE_ID}/-/packages/pypi/simple"
+    UV_INDEX_SEANERGYS_USERNAME: gitlab-ci-token
+    UV_INDEX_SEANERGYS_PASSWORD: "${CI_JOB_TOKEN}"
+    PIP_EXTRA_INDEX_URL: "${CI_SERVER_PROTOCOL}://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_FQDN}/api/v4/groups/${CI_PROJECT_NAMESPACE_ID}/-/packages/pypi/simple"
+    SEANERTEST_UPSTREAM_USERNAME: gitlab-ci-token
+    SEANERTEST_UPSTREAM_PASSWORD: "${CI_JOB_TOKEN}"
+
+selftest:
+  extends: .shell
   stage: test
-  trigger:
-    include:
-      - artifact: generated-test-pipeline.yml
-        job: generate-test-pipeline
-    strategy: mirror
+  script:
+    - uv run pytest -v --junitxml junit-selftest.xml tests/selftest-*
+  artifacts:
+    when: always
+    reports:
+      junit: junit-selftest.xml
+
+integration:minikube:
+  extends: .shell
+  stage: test
+  resource_group: minikube
+  variables:
+    MINIKUBE_PROFILE: seanertest-ci
+    KUBECONFIG: ${CI_PROJECT_DIR}/.ci/kubeconfig
+    # Fixed, so that a firewall on the runner can allow exactly this port from
+    # the minikube network.
+    SEANERTEST_CACHE_PORT: "18080"
+  before_script:
+    # Kept on the runner, so that later pipelines install binaries instead of
+    # building them. Set here, because GitLab expands job variables before
+    # the job reaches the runner, where HOME is not yet known.
+    - export SEANERTEST_CACHE_DIR="$HOME/.cache/seanertest-ci"
+    - mkdir -p .ci
+    - minikube delete --profile "$MINIKUBE_PROFILE" || true
+    - minikube start --profile "$MINIKUBE_PROFILE" --driver docker --cpus 4 --memory 8g --wait all
+    - scripts/minikube-target.sh "$MINIKUBE_PROFILE" "$KUBECONFIG" "$SEANERTEST_CACHE_PORT" > .ci/target.yml
+  script:
+    - >-
+      uv run pytest -v -s --target .ci/target.yml --junitxml junit-integration.xml
+      $(find tests -mindepth 1 -maxdepth 1 -type d ! -name 'selftest-*' | sort)
+  after_script:
+    - minikube delete --profile "$MINIKUBE_PROFILE" || true
+  artifacts:
+    when: always
+    reports:
+      junit: junit-integration.xml
+
+publish:
+  stage: publish
+  tags:
+    - docker
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  environment:
+    name: gitlab-pypi
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - when: never
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - echo "Publishing seanertest ${VERSION} to GitLab PyPI"
+    - PACKAGE_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+    - >-
+      if [ "${VERSION}" != "${PACKAGE_VERSION}" ]; then
+      echo "Tag ${CI_COMMIT_TAG} does not match version ${PACKAGE_VERSION} in pyproject.toml";
+      exit 1;
+      fi
+    - uv build --no-sources
+    - >-
+      uv publish
+      --publish-url "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
+      --username gitlab-ci-token
+      --password "${CI_JOB_TOKEN}"
+
+# Living at head: every push to the default branch publishes a development
+# build, <next patch>.dev<pipeline number>, for example 0.1.4.dev57. Consumers
+# that ask for development builds get the newest one; tagged releases stay the
+# stable versions and sort after the development builds before them.
+publish:dev:
+  stage: publish
+  tags:
+    - docker
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  environment:
+    name: gitlab-pypi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - uv version --frozen --bump patch --bump "dev=${CI_PIPELINE_IID}"
+    - echo "Publishing seanertest $(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])') to GitLab PyPI"
+    - uv build --no-sources
+    - >-
+      uv publish
+      --publish-url "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
+      --username gitlab-ci-token
+      --password "${CI_JOB_TOKEN}"

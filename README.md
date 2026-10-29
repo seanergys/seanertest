@@ -4,226 +4,180 @@ SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
 SPDX-License-Identifier: MIT
 -->
 
-# seanertest fixture prototype
+# seanertest
 
-Seanertest is a pytest fixture layer for integration tests that need services on
-machine-shaped testbeds. The repository now has two distinct concepts:
+Seanertest runs integration tests for SEANERGYS services on testbeds. It is a pytest plugin that
+drives the complete run: it builds the software of the selected tests with seanerstack, obtains a
+testbed from seanerops, starts the services in Kubernetes pods, and runs the tests against them.
 
-1. **machine descriptions** say which execution nodes exist and how they are
-   provisioned;
-2. **service drivers** install/start a logical service across those nodes.
+## Design
 
-The original one-container-per-service fixtures continue to work unchanged.
-Driver-backed services use a selected machine description.
+- **Targets:** A target is a machine that tests run on, described by one file in `targets/`. The
+  same test runs unchanged on every target.
+- **Fixtures:** Each test directory has a `fixture.yaml` that declares the logical nodes the test
+  needs and the services that run on them.
+- **Build phase:** Before any test starts, seanertest builds every Spack environment of the
+  selected tests in the approved Rocky Linux 10 image and pushes the binaries to the target's build
+  cache.
+- **Pods:** Every logical node is a pod whose host name is the logical node name. The pods install
+  their software from the build cache and never build anything.
 
-## Selecting a machine/testbed
+The [design document](docs/explanation/design.md) explains the responsibilities of seanertest,
+seanerops and seanerstack in detail.
 
-Pass the machine name to pytest:
+## Running tests
 
-```bash
-pytest -v -s --testbed Asys tests/test-if-we-can-submit-2-jobs/test_main.py
-pytest -v -s --testbed Bsys tests/test-if-we-can-submit-2-jobs/test_main.py
-```
+The tests need a Kubernetes cluster, Docker for the build container, and access to GitHub and the
+SEANERGYS GitLab. For a local minikube cluster with the Docker driver:
 
-`SEANERTEST_TESTBED=Asys` is also accepted. Seanertest searches upward from the
-test directory for `machines/<name>.yaml`.
+1. Start minikube:
 
-The included Docker-only machines are:
+    ```bash
+    minikube start
+    ```
 
-```text
-machines/
-├── Asys.yaml   # 4 control + 1 login + 6 compute nodes
-└── Bsys.yaml   # 1 control + 1 login + 4 compute nodes
-```
+2. Write a target for it. The script finds the address of the host on minikube's network:
 
-A machine description is intentionally service-independent:
+    ```bash
+    scripts/minikube-target.sh minikube ~/.kube/config > targets/local.yml
+    ```
 
-```yaml
-version: 1
-name: Asys
+3. Run the tests and keep the build cache between runs:
 
-provider:
-  name: docker
-  image: fluxrm/flux-core:latest
-  command: [sleep, infinity]
+    ```bash
+    uv run pytest -v -s --target local --cache-dir ~/.cache/seanertest
+    ```
 
-nodes:
-  - role: control
-    count: 4
-  - role: login
-    count: 1
-  - role: compute
-    count: 6
-```
-
-For the Docker provider, every logical node becomes one container with a stable
-hostname such as `asys-control-0` or `asys-compute-3`.
-
-## Driver-backed fixtures
-
-`tests/test-if-we-can-submit-2-jobs/fixture.yaml` declares one logical Flux
-service. Test directories describe the behavior being checked rather than the
-software used to implement it:
-
-```yaml
-version: 1
-
-services:
-  - name: seanergys.flux
-    software:
-      spack: spack.yaml
-    driver:
-      name: flux
-      config:
-        generic:
-          config: configs/generic/config.toml
-          hosts: configs/generic/hosts.yaml
-        Asys:
-          config: configs/Asys/config.toml
-          hosts: configs/Asys/hosts.yaml
-        Bsys:
-          config: configs/Bsys/config.toml
-          hosts: configs/Bsys/hosts.yaml
-```
-
-The accompanying `spack.yaml` pins Flux to an exact release:
-
-```yaml
-spack:
-  specs:
-    - flux-core@0.78.0
-  concretizer:
-    unify: true
-  view: true
-```
-
-The selected testbed chooses the matching entry. If a machine exists but there
-is no exact service configuration, `generic` is used as the fallback.
-
-Each testbed has two Flux inputs:
-
-```text
-configs/
-├── generic/
-│   ├── config.toml
-│   └── hosts.yaml
-├── Asys/
-│   ├── config.toml
-│   └── hosts.yaml
-└── Bsys/
-    ├── config.toml
-    └── hosts.yaml
-```
-
-`config.toml` is ordinary Flux configuration. `hosts.yaml` is deliberately not
-a concrete Flux host list. It maps machine roles onto Flux brokers and
-resources, for example:
-
-```yaml
-version: 1
-brokers:
-  roles: [control, login, compute]
-login:
-  role: login
-resources:
-  - role: control
-    cores: "0"
-    properties: [control]
-    schedulable: false
-  - role: login
-    cores: "0"
-    properties: [login]
-    schedulable: false
-  - role: compute
-    cores: "0"
-    properties: [compute]
-    schedulable: true
-```
-
-The Flux driver combines this host-independent template with the actual nodes
-created by the machine provider and writes the concrete Flux `[bootstrap]` and
-`[[resource.config]]` configuration. Control and login brokers participate in
-the Flux instance but are excluded from scheduling; only compute nodes execute
-normal jobs.
-
-## Flux service API
-
-Tests receive the service through the normal `services` fixture:
-
-```python
-flux = services["seanergys.flux"]
-```
-
-The Flux-specific handle exposes:
-
-```python
-flux.broker_nodes()    # allocated nodes running Flux brokers
-flux.compute_nodes()   # schedulable compute nodes
-flux.hostnames()       # broker hostnames in Flux rank order
-flux.login_node()      # the selected login node
-flux.login_address()   # login hostname/address
-flux.flux_uri()        # Flux URI used inside the login node
-flux.pyflux()          # real flux.Flux handle when host-side access is possible
-flux.exec([...])       # execute a command from the login node in the Flux instance
-```
-
-For the Docker backend, the Flux local connector is a UNIX socket inside the
-login container, so `pyflux()` normally returns `None`. The API is intentionally
-optional so a future provider with a host-reachable Flux URI can return a real
-`flux.Flux` object without changing tests.
-
-The integration test submits two independent jobs and prints both job IDs and
-their output when pytest capture is disabled with `-s`.
-
-## Complex multi-service example
-
-`tests/example-complex-service-test` demonstrates that one fixture can combine
-a machine-backed service with ordinary container services. It provisions:
-
-- Flux, pinned to release `0.78.0`;
-- extra pinned Spack packages, including Catch2 pinned to the Git commit behind
-  `v3.2.1`, and `m4@1.4.19`;
-- a MinIO object store; and
-- a PostgreSQL database.
-
-The test submits a Flux job, checks the installed Spack packages, connects to
-MinIO's health endpoint, creates and queries a PostgreSQL table, and prints the
-hostname and IP address observed for every service. Run it on either example
-machine with:
+Pods reach the build cache over HTTP on the host's address in minikube's network. If the host's
+firewall drops inbound traffic, as ufw does by default, give the target a fixed port and allow it
+from the minikube network:
 
 ```bash
-pytest -v -s --testbed Asys tests/example-complex-service-test/test_main.py
+scripts/minikube-target.sh minikube ~/.kube/config 18080 > targets/local.yml
+sudo ufw allow in from 192.168.49.0/24 to 192.168.49.1 port 18080 proto tcp
 ```
 
-## Existing single-container fixtures
+Without `--cache-dir`, seanertest uses a temporary directory and builds everything again in the
+next run. The first run builds the compiler and every environment, which takes a long time; later
+runs install binaries from the cache.
 
-Simple fixtures remain valid:
+| Option | Environment variable | Meaning |
+| --- | --- | --- |
+| `--target` | `SEANERTEST_TARGET` | A target file, or a name that refers to `targets/NAME.yml`. |
+| `--cache-dir` | `SEANERTEST_CACHE_DIR` | Directory that keeps the build cache and downloaded sources. |
+| `--seanertest-config` | | The configuration file; by default `config.yml`, found upward from the tests. |
 
-```yaml
-version: 1
-services:
-  - name: configured-service
-    image: python:3.12-alpine
-    config: config.yml
-    ports: [8080]
+## Package index
+
+seanertest depends on seanerops and seanerstack, which are published to the package index of the
+SEANERGYS GitLab group. Every push to their `main` branch publishes a development build, such as
+`0.2.1.dev57`, and every tag publishes a release. seanertest asks for development builds, so it
+always gets the newest build of `main`, or a newer release.
+
+The index is configured in uv, not in this repository, so that moving to another index, such as
+PyPI, changes no file here. On a developer machine, add it to `~/.config/uv/uv.toml`:
+
+```toml
+[[index]]
+name = "seanergys"
+url = "https://gitlab.seanergys.fz-juelich.de/api/v4/groups/software/-/packages/pypi/simple"
 ```
 
-These are still useful for component tests that do not need a machine-level
-service driver.
+Provide the credentials in `UV_INDEX_SEANERGYS_USERNAME` and `UV_INDEX_SEANERGYS_PASSWORD`, for
+example a personal access token with the `read_api` scope.
 
-## CI
+The build container installs the same seanerstack version as the host from that index, through
+pip. Set `PIP_EXTRA_INDEX_URL` to the index URL with the credentials in it, or set
+`SEANERTEST_SEANERSTACK_SRC` to a seanerstack checkout to install that instead.
 
-The child-pipeline generator detects explicit testbed entries in a fixture's
-`driver.config`. A test file using the Flux fixture therefore becomes two CI
-jobs automatically:
+In CI, the jobs derive the index from GitLab's predefined variables: `CI_API_V4_URL`,
+`CI_SERVER_FQDN` and `CI_PROJECT_NAMESPACE_ID` name the package index of the project's group on
+the same GitLab, and `CI_JOB_TOKEN` reads it. No variables need to be set up. The job token of
+seanertest's pipelines needs access to the seanerops and seanerstack projects.
+
+Registry credentials come from `docker login registry.seanergys.fz-juelich.de`, or from
+`SEANERTEST_OCI_USERNAME` and
+`SEANERTEST_OCI_PASSWORD` for a target's OCI cache and `SEANERTEST_UPSTREAM_USERNAME` and
+`SEANERTEST_UPSTREAM_PASSWORD` for the upstream caches in `config.yml`. The seanerstack build
+cache has `push: true` in `config.yml`, so a build returns everything that it built from source
+to it when the credentials may write to the registry. With credentials that may only read, the
+build continues and logs a warning. Log in without a port:
+Docker stores logins by the exact host name, so a login for `registry.seanergys.fz-juelich.de:443`
+is not used for `registry.seanergys.fz-juelich.de`, and the registry then answers with
+`access forbidden`.
+
+## Building the compiler once
+
+Bootstrapping the compiler, `gcc@15`, takes hours, while the environments of the tests build in
+minutes once the compiler is available. The compiler is therefore built once, on a strong machine,
+and shared through the seanerstack build cache in the SEANERGYS registry, which `config.yml` lists
+as an upstream cache. Test sessions install it from there and build their environments themselves.
+
+1. Log in with an account that may write to the registry:
+
+    ```bash
+    docker login registry.seanergys.fz-juelich.de
+    ```
+
+2. Build the compiler and push it:
+
+    ```bash
+    scripts/build-compiler.sh
+    ```
+
+The script needs Docker, uv and a seanerstack checkout, by default the one next to this checkout;
+`SEANERSTACK_SRC` selects another. It runs `python -m seanertest.build --compiler-only`, which runs
+the build script of a session without environments, so the compiler gets the same hash as in every
+test session. `python -m seanertest.build FIXTURE...` builds environments the same way.
+
+## Writing a test
+
+A test directory contains `test_main.py`, `fixture.yaml`, and the files the fixture refers to. The
+documentation explains how to add one:
+
+- **Tutorial:** [Write your first test](docs/tutorials/write-your-first-test.md) builds a test step
+  by step on a local minikube cluster.
+- **How-to guide:** [Add a test](docs/how-to/add-a-test.md) gives the procedure for a new test in
+  this repository, including the checks that CI runs.
+- **Reference:** [Fixture file](docs/reference/fixture-file.md) and [Test API](docs/reference/test-api.md)
+  list every setting and every service handle.
+
+## Repository structure
 
 ```text
-pytest:tests-test-if-we-can-submit-2-jobs-test_main-Asys
-pytest:tests-test-if-we-can-submit-2-jobs-test_main-Bsys
-pytest:tests-example-complex-service-test-test_main-Asys
-pytest:tests-example-complex-service-test-test_main-Bsys
+config.yml
+targets/
+scripts/
+src/seanertest/
+tests/
+docs/
 ```
 
-Each invokes pytest with the corresponding `--testbed` argument and gets its
-own DinD daemon/network. Generated commands use `pytest -v -s`, so service and
-test output remains visible in the GitLab job log.
+- **`config.yml`:** Software sources, the approved image and Spack target per architecture, the
+  compiler, and the system packages installed in the containers.
+- **`targets/`:** Target descriptions.
+- **`tests/`:** Integration tests, and the `selftest-*` directories that test seanertest itself
+  without a cluster.
+
+## Continuous integration
+
+The jobs run on a runner with the tags `shell`, `testbed`, `generic` and `micro`, which provides
+Docker, minikube and uv. A job runs only on a runner that has all of its tags. To prepare a
+Rocky Linux 10 VM as that runner, run `scripts/setup-shell-runner.sh` as root on the VM. It
+installs Docker, minikube, kubectl, uv, Git and gitlab-runner, gives the runner user access to
+Docker, and opens the build cache port to the minikube network. Registering the runner with GitLab
+stays a manual step, and the script prints the command for it.
+
+| Job | Purpose |
+| --- | --- |
+| `selftest` | Runs the self-tests. |
+| `integration:minikube` | Starts a minikube profile, writes a target for it, and runs the integration tests. |
+
+## Documentation
+
+The documentation in `docs/` is organized into tutorials, how-to guides, reference and explanation.
+Build and serve it locally with:
+
+```bash
+uv run --no-project --with "properdocs>=1.6.7" --with "mkdocs-materialx>=10.2.0" properdocs serve
+```

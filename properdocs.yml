@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+site_name: seanertest
+site_description: Integration test orchestration for SEANERGYS
+strict: true
+
+theme:
+  name: materialx
+  features:
+    - content.code.copy
+    - navigation.indexes
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - tutorials/index.md
+      - Write your first test: tutorials/write-your-first-test.md
+  - How-to guides:
+      - how-to/index.md
+      - Set up a workstation: how-to/set-up-a-workstation.md
+      - Run the tests: how-to/run-the-tests.md
+      - Add a test: how-to/add-a-test.md
+      - Give a test software from Spack: how-to/use-spack-software.md
+      - Add a container service: how-to/add-a-container-service.md
+      - Run Flux on the logical nodes: how-to/run-flux.md
+      - Build the compiler: how-to/build-the-compiler.md
+      - Set up the CI runner: how-to/set-up-the-ci-runner.md
+  - Reference:
+      - reference/index.md
+      - Fixture file: reference/fixture-file.md
+      - Test API: reference/test-api.md
+      - Command line: reference/command-line.md
+      - Configuration file: reference/configuration-file.md
+      - Target file: reference/target-file.md
+  - Explanation:
+      - explanation/index.md
+      - How a run works: explanation/how-a-run-works.md
+      - Design: explanation/design.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - toc:
+      permalink: true

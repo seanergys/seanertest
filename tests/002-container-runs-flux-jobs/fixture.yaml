@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 2
+
+services:
+  - name: job-service
+    driver: container
+    image: fluxrm/flux-core:latest
+    command:
+      - sleep
+      - infinity
+    files:
+      - source: workload.sh
+        target: /opt/seanertest/input/workload.sh

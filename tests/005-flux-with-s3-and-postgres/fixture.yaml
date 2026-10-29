@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 2
+
+nodes:
+  - role: login
+    count: 1
+  - role: compute
+    count: 2
+
+services:
+  - name: seanergys.flux
+    driver: flux
+    roles: [login, compute]
+    software:
+      spack: spack.yaml
+    config: flux.toml
+
+  - name: s3
+    driver: container
+    image: ghcr.io/chrislusf/seaweedfs:4.38
+    command:
+      - mini
+      - -ip.bind=0.0.0.0
+    ports:
+      - 8333
+
+  - name: postgres
+    driver: container
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: seanergys
+      POSTGRES_USER: seanergys
+      POSTGRES_PASSWORD: seanergys-example-password
+    setup:
+      - until pg_isready -U seanergys -d seanergys; do sleep 1; done
+    ports:
+      - 5432
