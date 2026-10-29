@@ -46,6 +46,22 @@ docs:
     paths:
       - site/
 
+# The documentation of the default branch is the project's GitLab Pages site.
+pages:
+  stage: publish
+  tags:
+    - docker
+  image: alpine:latest
+  needs:
+    - job: docs
+      artifacts: true
+  script:
+    - mv site public
+  pages:
+    publish: public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
 # The testbed runner, with the tags shell, testbed, generic and micro, provides
 # Docker, minikube and uv. seanerops and seanerstack come from the package
 # index of this project's group on this GitLab, read with the job token. uv
