@@ -132,43 +132,15 @@ test session. `python -m seanertest.build FIXTURE...` builds environments the sa
 
 ## Writing a test
 
-A test directory contains `test_main.py`, `fixture.yaml`, and the files the fixture refers to:
+A test directory contains `test_main.py`, `fixture.yaml`, and the files the fixture refers to. The
+documentation explains how to add one:
 
-```yaml
-version: 2
-
-nodes:
-  - role: login
-    count: 1
-  - role: compute
-    count: 4
-
-services:
-  - name: seanergys.flux
-    driver: flux
-    roles: [login, compute]
-    software:
-      spack: spack.yaml
-    config: flux.toml
-
-  - name: postgres
-    driver: container
-    image: postgres:16-alpine
-    ports: [5432]
-```
-
-| Driver | Runs on | Purpose |
-| --- | --- | --- |
-| `flux` | Logical nodes | One Flux broker per logical node of the given roles. |
-| `environment` | Logical nodes | The installed Spack environment without a running service. |
-| `container` | Its own pod | A service that keeps its own image, such as PostgreSQL. |
-
-- **Allocation:** A fixture may require a mode with `allocation: {mode: exclusive}`. A test whose
-  requirement the target cannot meet is skipped with the reason.
-- **Flux options:** `options.login` names the role of the login node, by default `login`.
-  `options.schedulable` lists the roles that run jobs, by default `[compute]`.
-- **Test handles:** Tests receive the services through the `services` fixture, for example
-  `services["seanergys.flux"].exec([...])`. Container services provide `endpoint(port)`.
+- **Tutorial:** [Write your first test](docs/tutorials/write-your-first-test.md) builds a test step
+  by step on a local minikube cluster.
+- **How-to guide:** [Add a test](docs/how-to/add-a-test.md) gives the procedure for a new test in
+  this repository, including the checks that CI runs.
+- **Reference:** [Fixture file](docs/reference/fixture-file.md) and [Test API](docs/reference/test-api.md)
+  list every setting and every service handle.
 
 ## Repository structure
 
@@ -203,7 +175,8 @@ stays a manual step, and the script prints the command for it.
 
 ## Documentation
 
-Build and serve the documentation locally with:
+The documentation in `docs/` is organized into tutorials, how-to guides, reference and explanation.
+Build and serve it locally with:
 
 ```bash
 uv run --no-project --with "properdocs>=1.6.7" --with "mkdocs-materialx>=10.2.0" properdocs serve

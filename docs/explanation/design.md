@@ -306,7 +306,7 @@ sources:
   spack_packages:
     git: https://github.com/spack/spack-packages.git
   seanerstack:
-    pip: seanerstack @ git+https://gitlab.seanergys.fz-juelich.de/software/seanerstack.git@main
+    pip: seanerstack
 
 compiler: gcc@15
 

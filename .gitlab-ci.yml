@@ -34,6 +34,18 @@ lint:reuse:
   script:
     - reuse lint
 
+# Broken links and unknown pages fail the build in strict mode.
+docs:
+  stage: check
+  tags:
+    - docker
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  script:
+    - uv run --no-project --with "properdocs>=1.6.7" --with "mkdocs-materialx>=10.2.0" properdocs build --strict
+  artifacts:
+    paths:
+      - site/
+
 # The testbed runner, with the tags shell, testbed, generic and micro, provides
 # Docker, minikube and uv. seanerops and seanerstack come from the package
 # index of this project's group on this GitLab, read with the job token. uv
