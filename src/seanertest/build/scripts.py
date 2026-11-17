@@ -15,17 +15,24 @@ build container and the pods.
 
 from __future__ import annotations
 
+import json
 import shlex
 from dataclasses import dataclass
 
 # Root of everything seanertest puts into containers. On cluster hosts it is a
 # hostPath directory shared by the pods of that host.
-PREFIX = "/opt/seanertest"
+PREFIX = "/opt/seanergys"
 
 # Seanerstack state directory in the build container. Its store is the install
-# root, which the pods use as well.
+# root, which the pods use as well. It is seanerstack's default state
+# directory, where the binaries of the seanerstack build cache were built:
+# Spack cannot relocate a binary into a longer path, and the path of the
+# compiler is part of the hash of everything built with it.
 STATE_DIR = f"{PREFIX}/state"
 STORE = f"{STATE_DIR}/spack/store"
+
+# What seanerstack's toolchain bootstrap installs in the build container.
+SEANERSTACK_CONFIG = f"{PREFIX}/seanerstack.toml"
 
 # Name of the build cache in Spack's mirror configuration.
 MIRROR = "seanertest-cache"
@@ -123,7 +130,16 @@ def build_script(settings: BuildSettings) -> str:
     environments at /work/environments/<id>/spack.yaml.
     """
     root = spack_root(settings.spack_version)
-    seanerstack = f"seanerstack --state-dir {STATE_DIR} --spack-executable {root}/bin/spack"
+    seanerstack = (
+        f"seanerstack --state-dir {STATE_DIR} --spack-executable {root}/bin/spack --config-file {SEANERSTACK_CONFIG}"
+    )
+    # TOML strings are JSON strings.
+    toolchain = (
+        "[toolchain]\n"
+        f"compiler = {json.dumps(settings.compiler)}\n"
+        "packages = []\n"
+        f"target = {json.dumps(settings.target)}\n"
+    )
     lines = [
         "set -euo pipefail",
         "# The container runs as root. Return everything it wrote on the host to the",
@@ -140,9 +156,15 @@ def build_script(settings: BuildSettings) -> str:
         "",
         "# The pods clone the spack-packages commit that seanertest's seanerstack pins.",
         "# Binaries match only if this seanerstack pins the same one.",
-        "/opt/seanerstack/bin/python -c 'import sys; from seanerstack.isolation import BUILTIN_REPO_COMMIT as c; "
+        "/opt/seanerstack/bin/python -c 'import sys; from seanerstack.pins import BUILTIN_REPO_COMMIT as c; "
         f"sys.exit(0 if c == sys.argv[1] else f\"seanerstack pins spack-packages {{c}}, seanertest expects {{sys.argv[1]}}\")' "
         f"{settings.spack_packages_commit}",
+        "",
+        "# seanerstack's bootstrap installs the toolchain of its configuration: here the",
+        "# compiler alone, without the packages of seanerstack's own toolchain, such as",
+        "# rust, which no test needs.",
+        f"mkdir -p {PREFIX}",
+        f"cat > {SEANERSTACK_CONFIG} <<'EOF'\n{toolchain}EOF",
         "",
         "# Downloaded sources survive in the host's cache directory.",
         f"mkdir -p {STATE_DIR}/spack /cache/source-cache /cache/environments",
@@ -162,7 +184,7 @@ def build_script(settings: BuildSettings) -> str:
         f"spack config add {shlex.quote(f'packages:all:require:target={settings.target}')}",
         "",
         "# The bootstrapped compiler comes from a build cache when one has it.",
-        f"{seanerstack} toolchain bootstrap {shlex.quote(settings.compiler)}",
+        f"{seanerstack} toolchain bootstrap",
         "",
     ]
     for environment in settings.environments:
