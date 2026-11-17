@@ -282,7 +282,9 @@ serves every target of that architecture.
 | Compiler | The build container uses seanerstack's compiler bootstrap. The bootstrapped compiler is built with the image's system compiler, and its runtime reaches the pods through the build cache. | Decided |
 | Pinning | The Spack version and the `spack-packages` commit are pinned and identical in the build container and in the pods. | Decided |
 | `spack-packages` commit | Seanerstack owns the pin. Seanertest takes the commit from seanerstack for the pods, so there is only one place to change it. | Decided |
-| Spack version | Pinned in the seanertest configuration. | Decided |
+| Spack version | Pinned in the seanertest configuration. It has to be the version that seanerstack pins, which refuses any other. | Decided |
+| Install root | The build container and the pods install below `/opt/seanergys/state`, seanerstack's default state directory. The binaries of the seanerstack build cache were built there: Spack cannot relocate a binary into a longer path, and the path of the compiler is part of the hash of everything built with it. On a cluster host the directory is `/var/lib/seanertest/seanergys`. | Decided |
+| Toolchain | Seanerstack's bootstrap installs the toolchain of a configuration file. Seanertest writes one that names the compiler and the target and no packages, so that the packages of seanerstack's own toolchain, such as Rust, are not installed. | Decided |
 | Sources | Spack and `spack-packages` are fetched from GitHub. Every pod has internet access for now. The locations are parameters in the seanertest configuration, so a mirror on the local network can replace GitHub later. | Decided |
 | System tools | The Rocky Linux 10 image lacks tools that Spack needs. They are installed with `dnf` when a container that runs Spack starts. | Decided |
 

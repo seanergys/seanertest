@@ -23,7 +23,9 @@ NODE_LABEL = "seanertest/node"
 
 # Directory on each cluster host shared by the pods of that host. It holds
 # Spack, the installed environments and their store, and survives sessions.
-HOST_DIRECTORY = "/var/lib/seanertest"
+# What earlier versions installed for /opt/seanertest lies next to it, in
+# /var/lib/seanertest itself, and is not used any more.
+HOST_DIRECTORY = "/var/lib/seanertest/seanergys"
 
 READY_FILE = "/tmp/seanertest-ready"
 OCI_SECRET = "seanertest-oci"

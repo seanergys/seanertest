@@ -18,7 +18,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from seanerstack.isolation import BUILTIN_REPO_COMMIT
+from seanerstack.pins import BUILTIN_REPO_COMMIT
 
 from seanertest.build.phase import BuildError, build_compiler, run_build_phase
 from seanertest.config import ConfigError, find_config, load_config

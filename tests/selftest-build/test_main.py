@@ -16,7 +16,7 @@ from urllib.request import urlopen
 
 import pytest
 
-from seanerstack.isolation import BUILTIN_REPO_COMMIT
+from seanerstack.pins import BUILTIN_REPO_COMMIT
 
 from seanertest.build.phase import _container_environment, destination, environment_key, seanerstack_requirement
 from seanertest.build.scripts import STORE, BuildSettings, InstallSettings, build_script, install_script
@@ -47,8 +47,11 @@ def test_build_script_bootstraps_the_compiler_builds_every_environment_and_pushe
     script = build_script(BUILD)
     assert "dnf install -y --setopt=install_weak_deps=False python3 gcc" in script
     assert "--branch v1.2.2" in script
-    assert "toolchain bootstrap gcc@15" in script
+    # The compiler alone, as the toolchain of the configuration that seanerstack reads.
+    assert '[toolchain]\ncompiler = "gcc@15"\npackages = []\ntarget = "x86_64_v3"\nEOF' in script
+    assert "--config-file /opt/seanergys/seanerstack.toml toolchain bootstrap\n" in script
     assert "packages:all:require:target=x86_64_v3" in script
+    assert script.index("[toolchain]") < script.index("toolchain bootstrap")
     assert script.index("toolchain bootstrap") < script.index("environment aaaa") < script.index("environment bbbb")
     assert (
         "cp /work/environments/aaaa/spack.yaml /work/environments/aaaa/spack.lock /cache/environments/local/aaaa/"
@@ -214,9 +217,9 @@ def test_cache_server_rejects_an_address_of_another_host(tmp_path):
 
 def test_compiler_only_build_bootstraps_and_pushes_without_environments():
     script = build_script(replace(BUILD, environments=()))
-    assert "toolchain bootstrap gcc@15" in script
+    assert 'compiler = "gcc@15"\npackages = []' in script
     assert "packages:all:require:target=x86_64_v3" in script
-    assert script.index("packages:all:require") < script.index("toolchain bootstrap")
+    assert script.index("packages:all:require") < script.index("toolchain bootstrap\n")
     assert "==> environment" not in script
     assert "push --unsigned --update-index --only package seanertest-cache" in script
 
