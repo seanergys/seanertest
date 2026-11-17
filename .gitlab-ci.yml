@@ -63,11 +63,15 @@ pages:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
 # The testbed runner, with the tags shell, testbed, generic and micro, provides
-# Docker, minikube and uv. seanerops and seanerstack come from the package
-# index of this project's group on this GitLab, read with the job token. uv
-# uses it for seanertest's dependencies, pip in the build container for
-# seanerstack. The job token also reads the seanerstack build cache in the
-# registry, the upstream cache of config.yml, so that the build container
+# Docker, minikube and uv. seanerops comes from the package index of this
+# project's group on this GitLab, read with the job token, and the release of
+# seanerstack from PyPI. The group index has seanerstack too, but only its
+# development builds, and uv stops at the first index that has a package at
+# all; with unsafe-first-match it goes on to PyPI when the group index lacks
+# the version asked for, and still prefers the group index where it has one.
+# pip in the build container looks in both anyway. The job token also reads
+# the seanerstack build cache in the registry, the upstream cache of
+# config.yml, so that the build container
 # installs the compiler from there instead of building it. It cannot write to
 # another project's registry, so pushing back what the build built from source
 # needs a deploy token with the write_registry scope, set as the masked CI/CD
@@ -83,6 +87,7 @@ pages:
     UV_INDEX: "seanergys=${CI_API_V4_URL}/groups/${CI_PROJECT_NAMESPACE_ID}/-/packages/pypi/simple"
     UV_INDEX_SEANERGYS_USERNAME: gitlab-ci-token
     UV_INDEX_SEANERGYS_PASSWORD: "${CI_JOB_TOKEN}"
+    UV_INDEX_STRATEGY: unsafe-first-match
     PIP_EXTRA_INDEX_URL: "${CI_SERVER_PROTOCOL}://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_FQDN}/api/v4/groups/${CI_PROJECT_NAMESPACE_ID}/-/packages/pypi/simple"
     SEANERTEST_UPSTREAM_USERNAME: gitlab-ci-token
     SEANERTEST_UPSTREAM_PASSWORD: "${CI_JOB_TOKEN}"
