@@ -69,19 +69,27 @@ runs install binaries from the cache.
 
 ## Package index
 
-seanertest depends on seanerops and seanerstack, which are published to the package index of the
-SEANERGYS GitLab group. Every push to their `main` branch publishes a development build, such as
-`0.2.1.dev57`, and every tag publishes a release. seanertest asks for development builds, so it
-always gets the newest build of `main`, or a newer release.
+seanertest depends on seanerops and seanerstack. seanerops is published to the package index of the
+SEANERGYS GitLab group: every push to its `main` branch publishes a development build, such as
+`0.2.1.dev57`, and every tag publishes a release. seanertest asks for development builds of
+seanerops, so it always gets the newest build of `main`, or a newer release. Of seanerstack it
+takes one release, which is on PyPI.
 
 The index is configured in uv, not in this repository, so that moving to another index, such as
 PyPI, changes no file here. On a developer machine, add it to `~/.config/uv/uv.toml`:
 
 ```toml
+index-strategy = "unsafe-first-match"
+
 [[index]]
 name = "seanergys"
 url = "https://gitlab.seanergys.fz-juelich.de/api/v4/groups/software/-/packages/pypi/simple"
 ```
+
+The group index also has seanerstack, but only its development builds. uv stops at the first index
+that has a package at all, so without `index-strategy` it never finds the release on PyPI. With
+`unsafe-first-match` it goes on to the next index when one lacks the version asked for, and still
+prefers the group index where that has one.
 
 Provide the credentials in `UV_INDEX_SEANERGYS_USERNAME` and `UV_INDEX_SEANERGYS_PASSWORD`, for
 example a personal access token with the `read_api` scope.

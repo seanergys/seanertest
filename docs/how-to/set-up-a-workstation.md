@@ -19,13 +19,15 @@ minikube and kubectl. It needs access to GitHub and to the SEANERGYS GitLab.
     cd seanertest
     ```
 
-2. Create a GitLab personal access token with the `read_api` scope. Seanertest depends on seanerops
-   and seanerstack, which are published to the package index of the SEANERGYS GitLab group, and that
-   index needs authentication even for reading.
+2. Create a GitLab personal access token with the `read_api` scope. Seanertest depends on seanerops,
+   which is published to the package index of the SEANERGYS GitLab group, and that index needs
+   authentication even for reading.
 
 3. Add the package index to `~/.config/uv/uv.toml`:
 
     ```toml
+    index-strategy = "unsafe-first-match"
+
     [[index]]
     name = "seanergys"
     url = "https://gitlab.seanergys.fz-juelich.de/api/v4/groups/software/-/packages/pypi/simple"
@@ -33,6 +35,9 @@ minikube and kubectl. It needs access to GitHub and to the SEANERGYS GitLab.
 
     The index is configured in uv and not in the repository, so that moving the packages to another
     index changes no file in seanertest.
+
+    `index-strategy` lets uv take the release of seanerstack from PyPI: the group index has
+    seanerstack too, but only its development builds, and uv would otherwise stop there.
 
 4. Provide the token to uv and to pip, for example in the shell profile:
 
