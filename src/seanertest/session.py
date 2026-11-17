@@ -25,7 +25,7 @@ from typing import Callable, Iterable
 import seanerops
 from seanerops import AllocationError, Request, Testbed
 from seanerops.allocation import mode_for
-from seanerstack.isolation import BUILTIN_REPO_COMMIT
+from seanerstack.pins import BUILTIN_REPO_COMMIT
 
 from seanertest.build.phase import BuiltEnvironment, run_build_phase
 from seanertest.build.scripts import OCI_PASSWORD, OCI_USERNAME, InstallSettings, activation_script, install_script
