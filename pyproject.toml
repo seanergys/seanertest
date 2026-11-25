@@ -22,7 +22,7 @@ dependencies = [
   "seanerops>=0.2.0.dev0",
   # One release, because the build container installs the same version and
   # every hash depends on the Spack and the spack-packages commit it pins.
-  "seanerstack==0.1.4",
+  "seanerstack==0.1.7",
 ]
 
 [dependency-groups]
