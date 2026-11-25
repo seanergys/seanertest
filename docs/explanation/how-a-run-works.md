@@ -40,7 +40,7 @@ environment once per run, in one Spack instance, and the pods only install ready
 A pod therefore never needs a compiler, and a test starts in seconds once its environment is in the
 cache.
 
-The build container and every pod use the same approved image, the same Spack version and the same
+The build container and every pod use the same approved image, the same Spack commit and the same
 `spack-packages` commit. A binary in a build cache is used only when its hash matches exactly, and
 the hash depends on all of these.
 
@@ -48,7 +48,8 @@ the hash depends on all of these.
 
 The environments are built with `gcc@15`, which seanerstack bootstraps. Bootstrapping it takes
 hours, so it is built once and kept in the seanerstack build cache in the SEANERGYS registry, an
-upstream cache of `config.yml`. A new cache directory, such as that of a new CI runner, therefore
+upstream cache of `config.yml`, together with the lockfile that names it. Seanerstack's bootstrap
+installs the compiler of that lockfile, so a new cache directory, such as that of a new CI runner,
 installs the compiler in seconds. Whatever a build has to build from source is pushed back to that
 cache, so that the next build on any machine installs it as well.
 
