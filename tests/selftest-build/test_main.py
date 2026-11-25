@@ -16,10 +16,21 @@ from urllib.request import urlopen
 
 import pytest
 
-from seanerstack.pins import BUILTIN_REPO_COMMIT
+from seanerstack.config import load_config as load_seanerstack_config
+from seanerstack.pins import BUILTIN_REPO_COMMIT, SPACK_COMMIT
 
 from seanertest.build.phase import _container_environment, destination, environment_key, seanerstack_requirement
-from seanertest.build.scripts import STORE, BuildSettings, InstallSettings, build_script, install_script
+from seanertest.build import repository
+from seanertest.build.scripts import (
+    RECIPES_ARCHIVE,
+    STORE,
+    BuildSettings,
+    InstallSettings,
+    build_script,
+    install_script,
+    seanerstack_config,
+    upstream_resource,
+)
 from seanertest.build.server import CacheServer, CacheServerError
 from seanertest.config import load_config
 from seanertest.credentials import from_docker, oci_credentials, registry_host
@@ -29,7 +40,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 BUILD = BuildSettings(
     spack_git="https://github.com/spack/spack.git",
-    spack_version="v1.2.2",
+    spack_commit=SPACK_COMMIT,
     seanerstack_pip="seanerstack @ git+https://gitlab.example.org/seanerstack.git",
     spack_packages_commit=BUILTIN_REPO_COMMIT,
     compiler="gcc@15",
@@ -46,7 +57,7 @@ BUILD = BuildSettings(
 def test_build_script_bootstraps_the_compiler_builds_every_environment_and_pushes():
     script = build_script(BUILD)
     assert "dnf install -y --setopt=install_weak_deps=False python3 gcc" in script
-    assert "--branch v1.2.2" in script
+    assert f"fetch --quiet --depth 1 https://github.com/spack/spack.git {SPACK_COMMIT}" in script
     # The compiler alone, as the toolchain of the configuration that seanerstack reads.
     assert '[toolchain]\ncompiler = "gcc@15"\npackages = []\ntarget = "x86_64_v3"\nEOF' in script
     assert "--config-file /opt/seanergys/seanerstack.toml toolchain bootstrap\n" in script
@@ -70,15 +81,47 @@ def test_build_script_for_an_oci_cache_uses_credential_variables():
 
 def test_build_script_reads_from_upstream_caches_before_the_compiler_bootstrap():
     script = build_script(replace(BUILD, upstream=("oci://registry.example.org/seanerstack/buildcache",)))
-    upstream = (
-        "--oci-username-variable SEANERTEST_UPSTREAM_USERNAME --oci-password-variable SEANERTEST_UPSTREAM_PASSWORD "
-        "seanertest-upstream-0 oci://registry.example.org/seanerstack/buildcache"
+    # The upstream caches are seanerstack's build caches, and seanerstack makes them mirrors.
+    resource = (
+        "[resources.seanertest-upstream-0]\n"
+        'kind = "spack-buildcache"\n'
+        'url = "oci://registry.example.org/seanerstack/buildcache"\n'
+        'credentials = "seanertest-upstream-0"\n'
+        "signed = false\n"
     )
-    assert upstream in script
-    assert script.index(upstream) < script.index("toolchain bootstrap")
+    assert resource in script
+    assert 'target = "x86_64_v3"\ncache = "seanertest-upstream-0"\nEOF' in script
+    configure = "--config-file /opt/seanergys/seanerstack.toml buildcache configure\n"
+    assert script.index("activate)") < script.index(configure) < script.index("toolchain bootstrap")
     # Without push, binaries go only to the session's own cache.
     assert "push --unsigned --update-index --only package seanertest-cache" in script
     assert "push --unsigned --update-index --only package seanertest-upstream" not in script
+
+
+def test_seanerstack_finds_the_compiler_lockfile_in_the_first_upstream_cache(tmp_path):
+    first = "oci://registry.example.org/seanerstack/buildcache"
+    path = tmp_path / "seanerstack.toml"
+    path.write_text(seanerstack_config(replace(BUILD, upstream=(first, "oci://registry.example.org/other"))))
+    config = load_seanerstack_config(path)
+    assert config.toolchain.compiler == "gcc@15"
+    assert config.toolchain.packages == ()
+    assert config.toolchain.target == "x86_64_v3"
+    assert config.resources[config.toolchain.cache] == upstream_resource(0, first)
+    assert set(config.resources) == {"seanertest-upstream-0", "seanertest-upstream-1"}
+    # The credentials of each cache, under the variables that the build phase sets.
+    assert upstream_resource(1, first).credential_variables == (
+        "SEANERSTACK_RESOURCE_SEANERTEST_UPSTREAM_1_USERNAME",
+        "SEANERSTACK_RESOURCE_SEANERTEST_UPSTREAM_1_PASSWORD",
+    )
+
+
+def test_without_upstream_caches_seanerstack_has_no_build_cache(tmp_path):
+    path = tmp_path / "seanerstack.toml"
+    path.write_text(seanerstack_config(BUILD))
+    config = load_seanerstack_config(path)
+    assert config.resources == {}
+    assert config.toolchain.cache not in config.resources
+    assert "buildcache configure" not in build_script(BUILD)
 
 
 def test_build_script_pushes_back_to_writable_upstream_caches_after_its_own_cache():
@@ -143,7 +186,7 @@ def test_install_script_installs_binaries_only_into_the_build_store():
     script = install_script(
         InstallSettings(
             spack_git="https://github.com/spack/spack.git",
-            spack_version="v1.2.2",
+            spack_commit=SPACK_COMMIT,
             spack_packages_git="https://github.com/spack/spack-packages.git",
             spack_packages_commit="91cfb5b973c311f742cd31061fe224d40f1fd830",
             packages=("python3",),
@@ -243,3 +286,46 @@ def test_pip_index_settings_reach_the_build_container(monkeypatch):
     monkeypatch.delenv("SEANERTEST_GIT_TOKEN", raising=False)
     environment = _container_environment("seanerstack==0.1.4.dev57", "http", None)
     assert environment == {"PIP_EXTRA_INDEX_URL": "https://user:token@example.org/simple"}
+
+
+def test_install_script_unpacks_the_recipes_of_seanerstack_before_spack_reads_them(tmp_path):
+    recipes = tmp_path / "recipes"
+    (recipes / "packages" / "example").mkdir(parents=True)
+    (recipes / "repo.yaml").write_text("repo:\n  namespace: seanerstack\n")
+    (recipes / "packages" / "example" / "package.py").write_text("# a recipe\n")
+    (recipes / "packages" / "example" / "__pycache__").mkdir()
+    (recipes / "packages" / "example" / "__pycache__" / "package.cpython-312.pyc").write_bytes(b"\0")
+    archive = repository.archive(recipes)
+    assert archive == repository.archive(recipes)
+
+    script = install_script(
+        InstallSettings(
+            spack_git="https://github.com/spack/spack.git",
+            spack_commit=SPACK_COMMIT,
+            spack_packages_git="https://github.com/spack/spack-packages.git",
+            spack_packages_commit="91cfb5b973c311f742cd31061fe224d40f1fd830",
+            packages=("python3",),
+            environment="aaaa",
+            cache_url="http://192.168.49.1:1234/token/",
+            oci=False,
+            seanerstack_recipes=repository.digest(archive),
+        )
+    )
+    unpacked = f"/opt/seanergys/package_repos/seanerstack-{repository.digest(archive)}"
+    assert f"  seanerstack: {unpacked}/spack_repo/seanerstack\n  builtin:\n" in script
+    assert script.index(f"base64 -d /seanertest/{RECIPES_ARCHIVE}") < script.index("repos.yaml")
+
+    # The pods unpack it as the script does.
+    pod = tmp_path / "pod"
+    pod.mkdir()
+    (pod / RECIPES_ARCHIVE).write_text(base64.b64encode(archive).decode())
+    subprocess.run(
+        ["/bin/sh", "-c", f'base64 -d {RECIPES_ARCHIVE} | tar -xz -C "$1"', "sh", str(pod)], cwd=pod, check=True
+    )
+    assert (pod / "spack_repo/seanerstack/packages/example/package.py").read_text() == "# a recipe\n"
+    assert not list(pod.rglob("__pycache__"))
+
+
+def test_recipes_are_the_ones_of_the_seanerstack_next_to_seanertest():
+    assert (repository.recipes() / "repo.yaml").is_file()
+    assert repository.archive(repository.recipes())

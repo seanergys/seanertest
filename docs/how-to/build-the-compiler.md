@@ -9,8 +9,8 @@ SPDX-License-Identifier: MIT
 Bootstrapping the compiler, `gcc@15`, takes hours, while the environments of the tests build in
 minutes once the compiler is available. The compiler is therefore built once, on a strong machine,
 and shared through the seanerstack build cache in the SEANERGYS registry. Test sessions install it
-from there. Build it again when `config.yml` changes the compiler, the Spack version or the image,
-or when seanerstack pins another `spack-packages` commit.
+from there. Build it again when `config.yml` changes the compiler or the image, or when seanerstack
+pins another Spack or `spack-packages` commit.
 
 The machine needs Docker, uv and Git.
 

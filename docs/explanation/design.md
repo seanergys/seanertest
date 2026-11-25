@@ -277,14 +277,14 @@ serves every target of that architecture.
 
 | Item | Decision | Status |
 | --- | --- | --- |
-| Spack | The build container and every pod install Spack themselves, at the same pinned version. | Decided |
-| Recipes | Only recipes from the builtin `spack-packages` repository are used for now, including Flux. Seanerstack's own recipes are not used yet. | Decided |
-| Compiler | The build container uses seanerstack's compiler bootstrap. The bootstrapped compiler is built with the image's system compiler, and its runtime reaches the pods through the build cache. | Decided |
-| Pinning | The Spack version and the `spack-packages` commit are pinned and identical in the build container and in the pods. | Decided |
+| Spack | The build container and every pod install Spack themselves, at the same pinned commit. | Decided |
+| Recipes | Environments use the recipes of seanerstack, the version next to seanertest, and of the builtin `spack-packages` repository, in that order, as seanerstack configures them. Seanerstack's `flux-core` extends the builtin recipe, so Flux comes from seanerstack's namespace. | Decided |
+| Compiler | The build container uses seanerstack's compiler bootstrap. It installs the compiler of the lockfile that the first upstream cache keeps, and only without one builds the compiler in two stages, the first with the image's system compiler. The compiler's runtime reaches the pods through the build cache. | Decided |
+| Pinning | The Spack commit and the `spack-packages` commit are pinned and identical in the build container and in the pods. | Decided |
 | `spack-packages` commit | Seanerstack owns the pin. Seanertest takes the commit from seanerstack for the pods, so there is only one place to change it. | Decided |
-| Spack version | Pinned in the seanertest configuration. It has to be the version that seanerstack pins, which refuses any other. | Decided |
+| Spack commit | Seanerstack owns the pin, a commit of Spack, and refuses any other Spack. Seanertest takes the commit from seanerstack for the build container and the pods. | Decided |
 | Install root | The build container and the pods install below `/opt/seanergys/state`, seanerstack's default state directory. The binaries of the seanerstack build cache were built there: Spack cannot relocate a binary into a longer path, and the path of the compiler is part of the hash of everything built with it. On a cluster host the directory is `/var/lib/seanertest/seanergys`. | Decided |
-| Toolchain | Seanerstack's bootstrap installs the toolchain of a configuration file. Seanertest writes one that names the compiler and the target and no packages, so that the packages of seanerstack's own toolchain, such as Rust, are not installed. | Decided |
+| Toolchain | Seanerstack's bootstrap installs the toolchain of a configuration file. Seanertest writes one that names the compiler and the target and no packages, so that the packages of seanerstack's own toolchain, such as Rust, are not installed. Its build caches are the upstream caches of the seanertest configuration. | Decided |
 | Sources | Spack and `spack-packages` are fetched from GitHub. Every pod has internet access for now. The locations are parameters in the seanertest configuration, so a mirror on the local network can replace GitHub later. | Decided |
 | System tools | The Rocky Linux 10 image lacks tools that Spack needs. They are installed with `dnf` when a container that runs Spack starts. | Decided |
 
@@ -304,7 +304,6 @@ version: 1
 sources:
   spack:
     git: https://github.com/spack/spack.git
-    version: v1.2.2
   spack_packages:
     git: https://github.com/spack/spack-packages.git
   seanerstack:
@@ -325,7 +324,7 @@ system_packages:
 
 | Setting | Meaning | Status |
 | --- | --- | --- |
-| `sources.spack` | Where Spack is fetched from, and the pinned Spack version. | Decided |
+| `sources.spack.git` | Where Spack is fetched from. The commit is not set here, because seanerstack owns it. | Decided |
 | `sources.spack_packages.git` | Where `spack-packages` is fetched from. The commit is not set here, because seanerstack owns it. | Decided |
 | `sources.seanerstack.pip` | The pip requirement that installs seanerstack in the build container. | Decided |
 | `compiler` | The compiler that seanerstack's bootstrap installs in the build container. | Decided |
@@ -482,7 +481,10 @@ gigabytes, so the user decides where it is kept.
   install script. This works for both cache types.
 - **Recipes in pods:** The installer pods clone the pinned `spack-packages` commit. Spack needs the
   recipes even for binary installations: without them, the installation fails with `Unknown
-  namespace: builtin`.
+  namespace: builtin`, or `Unknown namespace: seanerstack` for a package of seanerstack.
+  Seanerstack's recipes reach the pods as an archive in the installer's ConfigMap, packed from the
+  seanerstack next to seanertest, which the build container uses as well. Each host unpacks it once
+  into a directory named by the archive's digest.
 
 ### Results in Rocky Linux containers
 

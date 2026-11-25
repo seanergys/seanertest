@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
+from seanerstack.pins import SPACK_COMMIT
+
 from seanertest.build.scripts import (
     OCI_PASSWORD,
     OCI_USERNAME,
@@ -28,6 +30,7 @@ from seanertest.build.scripts import (
     UPSTREAM_USERNAME,
     BuildSettings,
     build_script,
+    upstream_resource,
 )
 from seanertest.config import Architecture, SeanertestConfig, UpstreamCache
 from seanertest.credentials import oci_credentials
@@ -80,7 +83,7 @@ def environment_key(
     digest = hashlib.sha256()
     for part in (
         environment.content,
-        config.spack_version.encode(),
+        SPACK_COMMIT.encode(),
         spack_packages_commit.encode(),
         config.compiler.encode(),
         architecture.image.encode(),
@@ -228,7 +231,10 @@ def _run_build(
                 f"source. Run docker login or set {UPSTREAM_USERNAME} and {UPSTREAM_PASSWORD}"
             )
             continue
-        environment_variables[UPSTREAM_USERNAME], environment_variables[UPSTREAM_PASSWORD] = credentials
+        # Each cache has its own credentials, under the variables that
+        # seanerstack and Spack read for its resource in the build container.
+        username, password = upstream_resource(len(upstream_caches), cache.url).credential_variables
+        environment_variables[username], environment_variables[password] = credentials
         upstream_caches.append(cache)
     # The build script returns its files to the calling user; should that ever
     # fail, a leftover directory must not abort the session.
@@ -240,7 +246,7 @@ def _run_build(
             (directory / "spack.yaml").write_bytes(content)
         settings = BuildSettings(
             spack_git=config.spack_git,
-            spack_version=config.spack_version,
+            spack_commit=SPACK_COMMIT,
             seanerstack_pip=(
                 "/src/seanerstack" if seanerstack_src is not None else seanerstack_requirement(config.seanerstack_pip)
             ),

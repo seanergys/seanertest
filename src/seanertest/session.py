@@ -10,6 +10,7 @@ and starts the services of each test module in a namespace of its own.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import os
 import re
@@ -25,10 +26,18 @@ from typing import Callable, Iterable
 import seanerops
 from seanerops import AllocationError, Request, Testbed
 from seanerops.allocation import mode_for
-from seanerstack.pins import BUILTIN_REPO_COMMIT
+from seanerstack.pins import BUILTIN_REPO_COMMIT, SPACK_COMMIT
 
+from seanertest.build import repository
 from seanertest.build.phase import BuiltEnvironment, run_build_phase
-from seanertest.build.scripts import OCI_PASSWORD, OCI_USERNAME, InstallSettings, activation_script, install_script
+from seanertest.build.scripts import (
+    OCI_PASSWORD,
+    OCI_USERNAME,
+    RECIPES_ARCHIVE,
+    InstallSettings,
+    activation_script,
+    install_script,
+)
 from seanertest.build.server import CacheServer
 from seanertest.config import SeanertestConfig
 from seanertest.credentials import oci_credentials
@@ -240,15 +249,17 @@ class Session:
         selected = [node for group in fixture.groups for node in testbed.by_role(group.role)[: group.count]]
 
         config_map = f"environment-{built.key}"
+        recipes = repository.archive(repository.recipes())
         settings = InstallSettings(
             spack_git=self.config.spack_git,
-            spack_version=self.config.spack_version,
+            spack_commit=SPACK_COMMIT,
             spack_packages_git=self.config.spack_packages_git,
             spack_packages_commit=BUILTIN_REPO_COMMIT,
             packages=self.config.install_packages,
             environment=built.key,
             cache_url=self._pod_cache_url(),
             oci=self.target.cache.type == "oci",
+            seanerstack_recipes=repository.digest(recipes),
         )
         cluster.create(
             manifests.config_map(
@@ -258,6 +269,7 @@ class Session:
                     "spack.yaml": built.environment.content.decode(),
                     "spack.lock": built.lock.read_text(encoding="utf-8"),
                     "install.sh": install_script(settings),
+                    RECIPES_ARCHIVE: base64.b64encode(recipes).decode(),
                 },
             )
         )
