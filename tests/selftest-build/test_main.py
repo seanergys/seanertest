@@ -20,7 +20,9 @@ from seanerstack.config import load_config as load_seanerstack_config
 from seanerstack.pins import BUILTIN_REPO_COMMIT, SPACK_COMMIT
 
 from seanertest.build.phase import _container_environment, destination, environment_key, seanerstack_requirement
+from seanertest.build import repository
 from seanertest.build.scripts import (
+    RECIPES_ARCHIVE,
     STORE,
     BuildSettings,
     InstallSettings,
@@ -284,3 +286,46 @@ def test_pip_index_settings_reach_the_build_container(monkeypatch):
     monkeypatch.delenv("SEANERTEST_GIT_TOKEN", raising=False)
     environment = _container_environment("seanerstack==0.1.4.dev57", "http", None)
     assert environment == {"PIP_EXTRA_INDEX_URL": "https://user:token@example.org/simple"}
+
+
+def test_install_script_unpacks_the_recipes_of_seanerstack_before_spack_reads_them(tmp_path):
+    recipes = tmp_path / "recipes"
+    (recipes / "packages" / "example").mkdir(parents=True)
+    (recipes / "repo.yaml").write_text("repo:\n  namespace: seanerstack\n")
+    (recipes / "packages" / "example" / "package.py").write_text("# a recipe\n")
+    (recipes / "packages" / "example" / "__pycache__").mkdir()
+    (recipes / "packages" / "example" / "__pycache__" / "package.cpython-312.pyc").write_bytes(b"\0")
+    archive = repository.archive(recipes)
+    assert archive == repository.archive(recipes)
+
+    script = install_script(
+        InstallSettings(
+            spack_git="https://github.com/spack/spack.git",
+            spack_commit=SPACK_COMMIT,
+            spack_packages_git="https://github.com/spack/spack-packages.git",
+            spack_packages_commit="91cfb5b973c311f742cd31061fe224d40f1fd830",
+            packages=("python3",),
+            environment="aaaa",
+            cache_url="http://192.168.49.1:1234/token/",
+            oci=False,
+            seanerstack_recipes=repository.digest(archive),
+        )
+    )
+    unpacked = f"/opt/seanergys/package_repos/seanerstack-{repository.digest(archive)}"
+    assert f"  seanerstack: {unpacked}/spack_repo/seanerstack\n  builtin:\n" in script
+    assert script.index(f"base64 -d /seanertest/{RECIPES_ARCHIVE}") < script.index("repos.yaml")
+
+    # The pods unpack it as the script does.
+    pod = tmp_path / "pod"
+    pod.mkdir()
+    (pod / RECIPES_ARCHIVE).write_text(base64.b64encode(archive).decode())
+    subprocess.run(
+        ["/bin/sh", "-c", f'base64 -d {RECIPES_ARCHIVE} | tar -xz -C "$1"', "sh", str(pod)], cwd=pod, check=True
+    )
+    assert (pod / "spack_repo/seanerstack/packages/example/package.py").read_text() == "# a recipe\n"
+    assert not list(pod.rglob("__pycache__"))
+
+
+def test_recipes_are_the_ones_of_the_seanerstack_next_to_seanertest():
+    assert (repository.recipes() / "repo.yaml").is_file()
+    assert repository.archive(repository.recipes())

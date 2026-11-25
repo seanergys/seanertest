@@ -44,6 +44,10 @@ UPSTREAM_MIRROR = "seanertest-upstream"
 OCI_USERNAME = "SEANERTEST_OCI_USERNAME"
 OCI_PASSWORD = "SEANERTEST_OCI_PASSWORD"
 
+# Key of seanerstack's recipe repository in the installer's ConfigMap: a
+# gzipped tar, base64-encoded, because a ConfigMap holds text.
+RECIPES_ARCHIVE = "seanerstack-recipes.tar.gz.base64"
+
 # Credentials for the upstream caches on the host. The build container gets
 # them under the variables of each cache's seanerstack resource.
 UPSTREAM_USERNAME = "SEANERTEST_UPSTREAM_USERNAME"
@@ -79,6 +83,9 @@ class InstallSettings:
     environment: str
     cache_url: str
     oci: bool
+    # Digest of the archive of seanerstack's recipes, which names the directory
+    # the pods unpack it into. Without it, only Spack's own recipes are there.
+    seanerstack_recipes: str | None = None
 
 
 def spack_root(commit: str) -> str:
@@ -262,8 +269,26 @@ def install_script(settings: InstallSettings) -> str:
     root = spack_root(settings.spack_commit)
     target = environment_dir(settings.environment)
     commit = settings.spack_packages_commit
+    unpack: list[str] = []
+    seanerstack_repo = ""
+    if settings.seanerstack_recipes is not None:
+        # Hosts keep it for later sessions; the digest in the name keeps the
+        # recipes of different seanerstack versions apart.
+        recipes = f"{PREFIX}/package_repos/seanerstack-{settings.seanerstack_recipes}"
+        seanerstack_repo = f"  seanerstack: {recipes}/spack_repo/seanerstack\n"
+        unpack = [
+            "# Spack needs the recipe of every package it installs, also from a build cache.",
+            f"if [ ! -d {recipes} ]; then",
+            f"  partial=$(mktemp -d {PREFIX}/package_repos/.seanerstack-XXXXXX)",
+            f'  base64 -d /seanertest/{RECIPES_ARCHIVE} | tar -xz -C "$partial"',
+            '  chmod 755 "$partial"',
+            "  # Another installer may have unpacked the same recipes meanwhile.",
+            f'  mv -T "$partial" {recipes} 2>/dev/null || rm -rf "$partial"',
+            "fi",
+        ]
     repos = (
         "repos::\n"
+        f"{seanerstack_repo}"
         "  builtin:\n"
         f"    git: {settings.spack_packages_git}\n"
         f"    commit: {commit}\n"
@@ -284,7 +309,8 @@ def install_script(settings: InstallSettings) -> str:
             f"export PATH={root}/bin:$PATH",
             f"export SPACK_USER_CONFIG_PATH={PREFIX}/user SPACK_USER_CACHE_PATH={PREFIX}/cache",
             "unset SPACK_DISABLE_LOCAL_CONFIG",
-            f"mkdir -p {PREFIX}/user {target}",
+            f"mkdir -p {PREFIX}/user {PREFIX}/package_repos {target}",
+            *unpack,
             f"cat > {PREFIX}/user/config.yaml <<'EOF'\n{config}EOF",
             f"cat > {PREFIX}/user/repos.yaml <<'EOF'\n{repos}EOF",
             _mirror_add(settings.cache_url, settings.oci).rstrip(),
