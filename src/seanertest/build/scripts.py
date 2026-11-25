@@ -19,6 +19,8 @@ import json
 import shlex
 from dataclasses import dataclass
 
+from seanerstack.config import Resource
+
 # Root of everything seanertest puts into containers. On cluster hosts it is a
 # hostPath directory shared by the pods of that host.
 PREFIX = "/opt/seanergys"
@@ -42,7 +44,8 @@ UPSTREAM_MIRROR = "seanertest-upstream"
 OCI_USERNAME = "SEANERTEST_OCI_USERNAME"
 OCI_PASSWORD = "SEANERTEST_OCI_PASSWORD"
 
-# Credentials for the upstream caches.
+# Credentials for the upstream caches on the host. The build container gets
+# them under the variables of each cache's seanerstack resource.
 UPSTREAM_USERNAME = "SEANERTEST_UPSTREAM_USERNAME"
 UPSTREAM_PASSWORD = "SEANERTEST_UPSTREAM_PASSWORD"
 
@@ -80,6 +83,48 @@ class InstallSettings:
 
 def spack_root(commit: str) -> str:
     return f"{PREFIX}/spack-{commit[:12]}"
+
+
+def upstream_resource(index: int, url: str) -> Resource:
+    """Upstream cache `index` of the build container as a seanerstack build cache.
+
+    Its name is also the name of its Spack mirror, and its credentials are
+    read from the variables of `Resource.credential_variables`.
+    """
+    name = f"{UPSTREAM_MIRROR}-{index}"
+    return Resource(name=name, kind="spack-buildcache", url=url, credentials=name, signed=False)
+
+
+def seanerstack_config(settings: BuildSettings) -> str:
+    """The seanerstack configuration of the build container.
+
+    The toolchain is the compiler alone, without the packages of seanerstack's
+    own toolchain, such as rust, which no test needs. The upstream caches are
+    its build caches, and the first one holds the lockfile of the compiler, as
+    the seanerstack build cache does: the bootstrap then installs the compiler
+    that the cache holds instead of building it.
+    """
+    resources = [upstream_resource(index, url) for index, url in enumerate(settings.upstream)]
+    # TOML strings are JSON strings.
+    lines = []
+    for resource in resources:
+        lines += [
+            f"[resources.{resource.name}]",
+            f"kind = {json.dumps(resource.kind)}",
+            f"url = {json.dumps(resource.url)}",
+            f"credentials = {json.dumps(resource.credentials)}",
+            "signed = false",
+            "",
+        ]
+    lines += [
+        "[toolchain]",
+        f"compiler = {json.dumps(settings.compiler)}",
+        "packages = []",
+        f"target = {json.dumps(settings.target)}",
+    ]
+    if resources:
+        lines.append(f"cache = {json.dumps(resources[0].name)}")
+    return "\n".join(lines) + "\n"
 
 
 def environment_dir(environment: str) -> str:
@@ -137,13 +182,6 @@ def build_script(settings: BuildSettings) -> str:
     seanerstack = (
         f"seanerstack --state-dir {STATE_DIR} --spack-executable {root}/bin/spack --config-file {SEANERSTACK_CONFIG}"
     )
-    # TOML strings are JSON strings.
-    toolchain = (
-        "[toolchain]\n"
-        f"compiler = {json.dumps(settings.compiler)}\n"
-        "packages = []\n"
-        f"target = {json.dumps(settings.target)}\n"
-    )
     lines = [
         "set -euo pipefail",
         "# The container runs as root. Return everything it wrote on the host to the",
@@ -164,11 +202,9 @@ def build_script(settings: BuildSettings) -> str:
         f"sys.exit(0 if c == sys.argv[1] else f\"seanerstack pins spack-packages {{c}}, seanertest expects {{sys.argv[1]}}\")' "
         f"{settings.spack_packages_commit}",
         "",
-        "# seanerstack's bootstrap installs the toolchain of its configuration: here the",
-        "# compiler alone, without the packages of seanerstack's own toolchain, such as",
-        "# rust, which no test needs.",
+        "# seanerstack's bootstrap installs the toolchain of its configuration.",
         f"mkdir -p {PREFIX}",
-        f"cat > {SEANERSTACK_CONFIG} <<'EOF'\n{toolchain}EOF",
+        f"cat > {SEANERSTACK_CONFIG} <<'EOF'\n{seanerstack_config(settings)}EOF",
         "",
         "# Downloaded sources survive in the host's cache directory.",
         f"mkdir -p {STATE_DIR}/spack /cache/source-cache /cache/environments",
@@ -176,14 +212,9 @@ def build_script(settings: BuildSettings) -> str:
         f'eval "$({seanerstack} activate)"',
         _mirror_add(settings.cache_url, settings.oci).rstrip(),
         *(
-            _mirror_add(
-                url,
-                url.startswith("oci://"),
-                name=f"{UPSTREAM_MIRROR}-{index}",
-                username=UPSTREAM_USERNAME,
-                password=UPSTREAM_PASSWORD,
-            ).rstrip()
-            for index, url in enumerate(settings.upstream)
+            ["# seanerstack makes its build caches, the upstream caches, mirrors.", f"{seanerstack} buildcache configure"]
+            if settings.upstream
+            else []
         ),
         f"spack config add {shlex.quote(f'packages:all:require:target={settings.target}')}",
         "",

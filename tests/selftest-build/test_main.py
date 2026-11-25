@@ -16,10 +16,19 @@ from urllib.request import urlopen
 
 import pytest
 
+from seanerstack.config import load_config as load_seanerstack_config
 from seanerstack.pins import BUILTIN_REPO_COMMIT, SPACK_COMMIT
 
 from seanertest.build.phase import _container_environment, destination, environment_key, seanerstack_requirement
-from seanertest.build.scripts import STORE, BuildSettings, InstallSettings, build_script, install_script
+from seanertest.build.scripts import (
+    STORE,
+    BuildSettings,
+    InstallSettings,
+    build_script,
+    install_script,
+    seanerstack_config,
+    upstream_resource,
+)
 from seanertest.build.server import CacheServer, CacheServerError
 from seanertest.config import load_config
 from seanertest.credentials import from_docker, oci_credentials, registry_host
@@ -70,15 +79,47 @@ def test_build_script_for_an_oci_cache_uses_credential_variables():
 
 def test_build_script_reads_from_upstream_caches_before_the_compiler_bootstrap():
     script = build_script(replace(BUILD, upstream=("oci://registry.example.org/seanerstack/buildcache",)))
-    upstream = (
-        "--oci-username-variable SEANERTEST_UPSTREAM_USERNAME --oci-password-variable SEANERTEST_UPSTREAM_PASSWORD "
-        "seanertest-upstream-0 oci://registry.example.org/seanerstack/buildcache"
+    # The upstream caches are seanerstack's build caches, and seanerstack makes them mirrors.
+    resource = (
+        "[resources.seanertest-upstream-0]\n"
+        'kind = "spack-buildcache"\n'
+        'url = "oci://registry.example.org/seanerstack/buildcache"\n'
+        'credentials = "seanertest-upstream-0"\n'
+        "signed = false\n"
     )
-    assert upstream in script
-    assert script.index(upstream) < script.index("toolchain bootstrap")
+    assert resource in script
+    assert 'target = "x86_64_v3"\ncache = "seanertest-upstream-0"\nEOF' in script
+    configure = "--config-file /opt/seanergys/seanerstack.toml buildcache configure\n"
+    assert script.index("activate)") < script.index(configure) < script.index("toolchain bootstrap")
     # Without push, binaries go only to the session's own cache.
     assert "push --unsigned --update-index --only package seanertest-cache" in script
     assert "push --unsigned --update-index --only package seanertest-upstream" not in script
+
+
+def test_seanerstack_finds_the_compiler_lockfile_in_the_first_upstream_cache(tmp_path):
+    first = "oci://registry.example.org/seanerstack/buildcache"
+    path = tmp_path / "seanerstack.toml"
+    path.write_text(seanerstack_config(replace(BUILD, upstream=(first, "oci://registry.example.org/other"))))
+    config = load_seanerstack_config(path)
+    assert config.toolchain.compiler == "gcc@15"
+    assert config.toolchain.packages == ()
+    assert config.toolchain.target == "x86_64_v3"
+    assert config.resources[config.toolchain.cache] == upstream_resource(0, first)
+    assert set(config.resources) == {"seanertest-upstream-0", "seanertest-upstream-1"}
+    # The credentials of each cache, under the variables that the build phase sets.
+    assert upstream_resource(1, first).credential_variables == (
+        "SEANERSTACK_RESOURCE_SEANERTEST_UPSTREAM_1_USERNAME",
+        "SEANERSTACK_RESOURCE_SEANERTEST_UPSTREAM_1_PASSWORD",
+    )
+
+
+def test_without_upstream_caches_seanerstack_has_no_build_cache(tmp_path):
+    path = tmp_path / "seanerstack.toml"
+    path.write_text(seanerstack_config(BUILD))
+    config = load_seanerstack_config(path)
+    assert config.resources == {}
+    assert config.toolchain.cache not in config.resources
+    assert "buildcache configure" not in build_script(BUILD)
 
 
 def test_build_script_pushes_back_to_writable_upstream_caches_after_its_own_cache():

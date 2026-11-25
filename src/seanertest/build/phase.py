@@ -30,6 +30,7 @@ from seanertest.build.scripts import (
     UPSTREAM_USERNAME,
     BuildSettings,
     build_script,
+    upstream_resource,
 )
 from seanertest.config import Architecture, SeanertestConfig, UpstreamCache
 from seanertest.credentials import oci_credentials
@@ -230,7 +231,10 @@ def _run_build(
                 f"source. Run docker login or set {UPSTREAM_USERNAME} and {UPSTREAM_PASSWORD}"
             )
             continue
-        environment_variables[UPSTREAM_USERNAME], environment_variables[UPSTREAM_PASSWORD] = credentials
+        # Each cache has its own credentials, under the variables that
+        # seanerstack and Spack read for its resource in the build container.
+        username, password = upstream_resource(len(upstream_caches), cache.url).credential_variables
+        environment_variables[username], environment_variables[password] = credentials
         upstream_caches.append(cache)
     # The build script returns its files to the calling user; should that ever
     # fail, a leftover directory must not abort the session.
