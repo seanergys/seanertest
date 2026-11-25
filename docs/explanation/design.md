@@ -278,7 +278,7 @@ serves every target of that architecture.
 | Item | Decision | Status |
 | --- | --- | --- |
 | Spack | The build container and every pod install Spack themselves, at the same pinned commit. | Decided |
-| Recipes | Only recipes from the builtin `spack-packages` repository are used for now, including Flux. Seanerstack's own recipes are not used yet. | Decided |
+| Recipes | Environments use the recipes of seanerstack, the version next to seanertest, and of the builtin `spack-packages` repository, in that order, as seanerstack configures them. Seanerstack's `flux-core` extends the builtin recipe, so Flux comes from seanerstack's namespace. | Decided |
 | Compiler | The build container uses seanerstack's compiler bootstrap. It installs the compiler of the lockfile that the first upstream cache keeps, and only without one builds the compiler in two stages, the first with the image's system compiler. The compiler's runtime reaches the pods through the build cache. | Decided |
 | Pinning | The Spack commit and the `spack-packages` commit are pinned and identical in the build container and in the pods. | Decided |
 | `spack-packages` commit | Seanerstack owns the pin. Seanertest takes the commit from seanerstack for the pods, so there is only one place to change it. | Decided |
@@ -481,7 +481,10 @@ gigabytes, so the user decides where it is kept.
   install script. This works for both cache types.
 - **Recipes in pods:** The installer pods clone the pinned `spack-packages` commit. Spack needs the
   recipes even for binary installations: without them, the installation fails with `Unknown
-  namespace: builtin`.
+  namespace: builtin`, or `Unknown namespace: seanerstack` for a package of seanerstack.
+  Seanerstack's recipes reach the pods as an archive in the installer's ConfigMap, packed from the
+  seanerstack next to seanertest, which the build container uses as well. Each host unpacks it once
+  into a directory named by the archive's digest.
 
 ### Results in Rocky Linux containers
 
