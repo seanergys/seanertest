@@ -16,7 +16,6 @@ version: 1
 sources:
   spack:
     git: https://github.com/spack/spack.git
-    version: v1.2.2
   spack_packages:
     git: https://github.com/spack/spack-packages.git
   seanerstack:
@@ -42,7 +41,7 @@ system_packages:
 | Key | Meaning |
 | --- | --- |
 | `version` | The format version. Only `1` is supported. |
-| `sources.spack.git`, `sources.spack.version` | The Spack repository and the tag that the build container and every pod clone. |
+| `sources.spack.git` | The location of Spack. The commit is the one that seanerstack pins, and the build container and every pod fetch it. |
 | `sources.spack_packages.git` | The location of `spack-packages`. The commit is the one that seanerstack pins. |
 | `sources.seanerstack.pip` | The pip requirement for seanerstack in the build container. A plain `seanerstack` means the version installed next to seanertest. |
 | `compiler` | The compiler that seanerstack bootstraps and that builds every environment. |
@@ -65,3 +64,8 @@ An entry of `upstream_caches` is either an `oci://` URL or a mapping with the fo
 Credentials come from `SEANERTEST_UPSTREAM_USERNAME` and `SEANERTEST_UPSTREAM_PASSWORD`, or from
 `docker login` for the registry. An upstream cache without credentials is left out, and everything
 it holds is built from source.
+
+In the build container, the upstream caches are the build caches of seanerstack's configuration.
+The first one is the cache of its toolchain, where seanerstack's bootstrap looks for the lockfile of
+the compiler. The seanerstack build cache keeps that lockfile, so the build container installs the
+compiler that the cache holds instead of building it.
