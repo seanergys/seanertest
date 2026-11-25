@@ -5,10 +5,10 @@
 version: 1
 
 sources:
+  # The commits of Spack and its package recipes are pinned by seanerstack;
+  # only their locations are configured here.
   spack:
     git: https://github.com/spack/spack.git
-    version: v1.2.2
-  # The commit is pinned by seanerstack; only the location is configured here.
   spack_packages:
     git: https://github.com/spack/spack-packages.git
   seanerstack:

@@ -18,7 +18,6 @@ def test_repository_config_names_the_approved_image_and_target():
     x86 = config.architecture("x86_64")
     assert x86.image.endswith("rockylinux:10")
     assert x86.target == "x86_64_v3"
-    assert config.spack_version.startswith("v1.")
     assert "gcc" in config.build_packages
     assert "gcc" not in config.install_packages
     assert config.seanerstack_pip == "seanerstack"
@@ -58,6 +57,16 @@ def test_upstream_caches_are_urls_or_mappings_with_push(tmp_path):
 def test_invalid_upstream_caches_are_rejected(tmp_path, upstream, message):
     with pytest.raises(ConfigError, match=message):
         load_config(_config_with_upstream(tmp_path, upstream))
+
+
+def test_a_spack_version_is_rejected_because_seanerstack_pins_the_commit(tmp_path):
+    text = (ROOT / "config.yml").read_text()
+    spack = "    git: https://github.com/spack/spack.git\n"
+    assert spack in text
+    path = tmp_path / "config.yml"
+    path.write_text(text.replace(spack, spack + "    version: v1.2.2\n"))
+    with pytest.raises(ConfigError, match="sources.spack: unknown keys: version"):
+        load_config(path)
 
 
 @pytest.mark.parametrize("path", sorted((ROOT / "targets").glob("*.yml")), ids=lambda path: path.stem)

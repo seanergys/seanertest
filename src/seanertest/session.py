@@ -25,7 +25,7 @@ from typing import Callable, Iterable
 import seanerops
 from seanerops import AllocationError, Request, Testbed
 from seanerops.allocation import mode_for
-from seanerstack.pins import BUILTIN_REPO_COMMIT
+from seanerstack.pins import BUILTIN_REPO_COMMIT, SPACK_COMMIT
 
 from seanertest.build.phase import BuiltEnvironment, run_build_phase
 from seanertest.build.scripts import OCI_PASSWORD, OCI_USERNAME, InstallSettings, activation_script, install_script
@@ -242,7 +242,7 @@ class Session:
         config_map = f"environment-{built.key}"
         settings = InstallSettings(
             spack_git=self.config.spack_git,
-            spack_version=self.config.spack_version,
+            spack_commit=SPACK_COMMIT,
             spack_packages_git=self.config.spack_packages_git,
             spack_packages_commit=BUILTIN_REPO_COMMIT,
             packages=self.config.install_packages,

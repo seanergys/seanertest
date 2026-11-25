@@ -16,7 +16,7 @@ from urllib.request import urlopen
 
 import pytest
 
-from seanerstack.pins import BUILTIN_REPO_COMMIT
+from seanerstack.pins import BUILTIN_REPO_COMMIT, SPACK_COMMIT
 
 from seanertest.build.phase import _container_environment, destination, environment_key, seanerstack_requirement
 from seanertest.build.scripts import STORE, BuildSettings, InstallSettings, build_script, install_script
@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 BUILD = BuildSettings(
     spack_git="https://github.com/spack/spack.git",
-    spack_version="v1.2.2",
+    spack_commit=SPACK_COMMIT,
     seanerstack_pip="seanerstack @ git+https://gitlab.example.org/seanerstack.git",
     spack_packages_commit=BUILTIN_REPO_COMMIT,
     compiler="gcc@15",
@@ -46,7 +46,7 @@ BUILD = BuildSettings(
 def test_build_script_bootstraps_the_compiler_builds_every_environment_and_pushes():
     script = build_script(BUILD)
     assert "dnf install -y --setopt=install_weak_deps=False python3 gcc" in script
-    assert "--branch v1.2.2" in script
+    assert f"fetch --quiet --depth 1 https://github.com/spack/spack.git {SPACK_COMMIT}" in script
     # The compiler alone, as the toolchain of the configuration that seanerstack reads.
     assert '[toolchain]\ncompiler = "gcc@15"\npackages = []\ntarget = "x86_64_v3"\nEOF' in script
     assert "--config-file /opt/seanergys/seanerstack.toml toolchain bootstrap\n" in script
@@ -143,7 +143,7 @@ def test_install_script_installs_binaries_only_into_the_build_store():
     script = install_script(
         InstallSettings(
             spack_git="https://github.com/spack/spack.git",
-            spack_version="v1.2.2",
+            spack_commit=SPACK_COMMIT,
             spack_packages_git="https://github.com/spack/spack-packages.git",
             spack_packages_commit="91cfb5b973c311f742cd31061fe224d40f1fd830",
             packages=("python3",),

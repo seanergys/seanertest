@@ -50,7 +50,7 @@ UPSTREAM_PASSWORD = "SEANERTEST_UPSTREAM_PASSWORD"
 @dataclass(frozen=True)
 class BuildSettings:
     spack_git: str
-    spack_version: str
+    spack_commit: str
     seanerstack_pip: str
     spack_packages_commit: str
     compiler: str
@@ -69,7 +69,7 @@ class BuildSettings:
 @dataclass(frozen=True)
 class InstallSettings:
     spack_git: str
-    spack_version: str
+    spack_commit: str
     spack_packages_git: str
     spack_packages_commit: str
     packages: tuple[str, ...]
@@ -78,8 +78,8 @@ class InstallSettings:
     oci: bool
 
 
-def spack_root(version: str) -> str:
-    return f"{PREFIX}/spack-{version}"
+def spack_root(commit: str) -> str:
+    return f"{PREFIX}/spack-{commit[:12]}"
 
 
 def environment_dir(environment: str) -> str:
@@ -112,12 +112,16 @@ def _dnf(packages: tuple[str, ...]) -> str:
     return f"dnf install -y --setopt=install_weak_deps=False {' '.join(map(shlex.quote, packages))}\n"
 
 
-def _clone_spack(git: str, version: str) -> str:
-    root = spack_root(version)
+def _clone_spack(git: str, commit: str) -> str:
+    # A commit is not a branch or tag, which `git clone --branch` needs, so the
+    # repository is fetched at that one commit, as seanerstack does.
+    root = spack_root(commit)
     return (
         f"if [ ! -x {root}/bin/spack ]; then\n"
         f"  rm -rf {root}.partial\n"
-        f"  git clone --depth 1 --branch {shlex.quote(version)} {shlex.quote(git)} {root}.partial\n"
+        f"  git init --quiet {root}.partial\n"
+        f"  git -C {root}.partial fetch --quiet --depth 1 {shlex.quote(git)} {shlex.quote(commit)}\n"
+        f"  git -C {root}.partial -c advice.detachedHead=false checkout --quiet FETCH_HEAD\n"
         f"  mv {root}.partial {root}\n"
         "fi\n"
     )
@@ -129,7 +133,7 @@ def build_script(settings: BuildSettings) -> str:
     The cache directory of the host is mounted at /cache and the session's
     environments at /work/environments/<id>/spack.yaml.
     """
-    root = spack_root(settings.spack_version)
+    root = spack_root(settings.spack_commit)
     seanerstack = (
         f"seanerstack --state-dir {STATE_DIR} --spack-executable {root}/bin/spack --config-file {SEANERSTACK_CONFIG}"
     )
@@ -149,7 +153,7 @@ def build_script(settings: BuildSettings) -> str:
         "# The image lacks most tools that Spack needs, and the compiler bootstrap",
         "# needs the system compiler.",
         _dnf(settings.packages).rstrip(),
-        _clone_spack(settings.spack_git, settings.spack_version).rstrip(),
+        _clone_spack(settings.spack_git, settings.spack_commit).rstrip(),
         "python3 -m venv /opt/seanerstack",
         f"/opt/seanerstack/bin/pip install --quiet {shlex.quote(settings.seanerstack_pip)}",
         "export PATH=/opt/seanerstack/bin:$PATH",
@@ -224,7 +228,7 @@ def install_script(settings: InstallSettings) -> str:
     PREFIX is a hostPath directory, so the result is shared by every pod on
     the host and reused by later sessions.
     """
-    root = spack_root(settings.spack_version)
+    root = spack_root(settings.spack_commit)
     target = environment_dir(settings.environment)
     commit = settings.spack_packages_commit
     repos = (
@@ -245,7 +249,7 @@ def install_script(settings: InstallSettings) -> str:
             "set -euo pipefail",
             f"if [ -f {target}/.installed ]; then echo 'environment already installed'; exit 0; fi",
             _dnf(settings.packages).rstrip(),
-            _clone_spack(settings.spack_git, settings.spack_version).rstrip(),
+            _clone_spack(settings.spack_git, settings.spack_commit).rstrip(),
             f"export PATH={root}/bin:$PATH",
             f"export SPACK_USER_CONFIG_PATH={PREFIX}/user SPACK_USER_CACHE_PATH={PREFIX}/cache",
             "unset SPACK_DISABLE_LOCAL_CONFIG",

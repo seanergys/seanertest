@@ -5,7 +5,8 @@
 """The seanertest configuration, ``config.yml``.
 
 It holds the settings that apply to every target: where Spack and seanerstack
-come from, the approved image and Spack target of each architecture, the
+come from (the commits of Spack and its recipes are those that seanerstack
+pins), the approved image and Spack target of each architecture, the
 compiler, and the system packages installed in the Rocky Linux containers.
 """
 
@@ -47,7 +48,6 @@ class UpstreamCache:
 class SeanertestConfig:
     path: Path
     spack_git: str
-    spack_version: str
     spack_packages_git: str
     seanerstack_pip: str
     compiler: str
@@ -90,6 +90,8 @@ def load_config(path: Path) -> SeanertestConfig:
     _mapping(sources, f"{where}: sources")
     spack = sources.get("spack")
     _mapping(spack, f"{where}: sources.spack")
+    # seanerstack pins the Spack commit and refuses any other Spack.
+    _known(spack, {"git"}, f"{where}: sources.spack")
     spack_packages = sources.get("spack_packages")
     _mapping(spack_packages, f"{where}: sources.spack_packages")
     seanerstack = sources.get("seanerstack")
@@ -118,7 +120,6 @@ def load_config(path: Path) -> SeanertestConfig:
     return SeanertestConfig(
         path=path,
         spack_git=_string(spack, "git", f"{where}: sources.spack"),
-        spack_version=_string(spack, "version", f"{where}: sources.spack"),
         spack_packages_git=_string(spack_packages, "git", f"{where}: sources.spack_packages"),
         seanerstack_pip=_string(seanerstack, "pip", f"{where}: sources.seanerstack"),
         compiler=_string(data, "compiler", where),
