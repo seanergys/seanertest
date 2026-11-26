@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+version: 2
+
+allocation:
+  mode: shared
+
+nodes:
+  - role: compute
+    count: 1
+
+services:
+  - name: flux-environment
+    driver: environment
+    roles: [compute]
+    software:
+      spack: spack.yaml
