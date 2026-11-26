@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 SEANERGYS Partners <https://seanergys.eu>
+#
+# SPDX-License-Identifier: MIT
+
+spack:
+  specs:
+    - flux-sched@git.754280727d350cdcf3871e73293a19f7e889ba3c=0.57.0
+  packages:
+    flux-sched:
+      package_attributes:
+        git: https://gitlab.seanergys.fz-juelich.de/software/flux-sched.git
+        get_full_repo: true
+  concretizer:
+    unify: true
+  view: true
